@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import WeightChart from "./WeightChart";
-import MiniClientWeight from "./MiniClientWeight";
 
 function ClientCard({
   client,
@@ -13,8 +12,14 @@ function ClientCard({
   saveGoalWeight,
   exportClientCSV,
 }) {
+  const [openSection, setOpenSection] = useState(null);
+
   const [routine, setRoutine] = useState("");
   const [goal, setGoal] = useState(client.goalWeight || "");
+
+  useEffect(() => {
+    setGoal(client.goalWeight || "");
+  }, [client.goalWeight]);
 
   const [progress, setProgress] = useState({
     date: "",
@@ -27,127 +32,100 @@ function ClientCard({
     protein: client.nutrition?.protein || "",
     carbs: client.nutrition?.carbs || "",
     fats: client.nutrition?.fats || "",
-    notes: client.nutrition?.notes || "",
   });
 
   const [nutritionDate, setNutritionDate] = useState("");
   const [nutritionCompleted, setNutritionCompleted] = useState(false);
 
-  useEffect(() => {
-    setGoal(client.goalWeight || "");
-  }, [client.goalWeight]);
-
   /* ===== ADHERENCIA ===== */
   const adherence = client.nutrition?.adherence || [];
-  const totalDays = adherence.length;
-  const completedDays = adherence.filter(d => d.completed).length;
-  const adherencePercent = totalDays
-    ? Math.round((completedDays / totalDays) * 100)
+  const adherencePercent = adherence.length
+    ? Math.round(
+        (adherence.filter((d) => d.completed).length /
+          adherence.length) *
+          100
+      )
     : 0;
 
-  let adherenceColor = "#444";
-  if (adherencePercent >= 70) adherenceColor = "#00ff99";
-  else if (adherencePercent >= 40) adherenceColor = "#ffcc00";
-  else if (totalDays > 0) adherenceColor = "#ff5555";
+  const adherenceColor =
+    adherencePercent >= 70
+      ? "#00ff99"
+      : adherencePercent >= 40
+      ? "#ffcc00"
+      : "#ff5555";
 
-  /* ===== ALERTAS ===== */
-  const alerts = [];
-  let progressColor = "#666";
-
-  if (client.progress.length === 0) {
-    alerts.push("⚠️ Sin registros de progreso");
-  }
-
-  if (client.goalWeight && client.progress.length > 0) {
-    const lastWeight =
-      Number(client.progress[client.progress.length - 1].weight);
-    const diff = Math.abs(lastWeight - client.goalWeight);
-
-    if (diff <= 1) {
-      alerts.push("🟢 Objetivo casi logrado");
-      progressColor = "#00ff99";
-    } else if (diff <= 4) {
-      alerts.push("🟡 Cerca del objetivo");
-      progressColor = "#ffcc00";
-    } else {
-      alerts.push("🔴 Muy lejos del objetivo");
-      progressColor = "#ff5555";
-    }
-  }
-
-  if (totalDays > 3 && adherencePercent < 40) {
-    alerts.push("🍽️ Mala adherencia nutricional");
-  }
+  const toggleSection = (section) =>
+    setOpenSection(openSection === section ? null : section);
 
   return (
-    <li className="client-card" style={{ borderLeft: `4px solid ${progressColor}` }}>
+    <li className="client-card">
       {/* ===== HEADER ===== */}
       <div className="client-header">
-        <div style={{ flex: 1 }}>
+        <div>
           <strong>{client.name}</strong>
           <small style={{ color: adherenceColor }}>
             {adherencePercent}% adherencia
           </small>
-
-          <MiniClientWeight
-            progress={client.progress}
-            color={progressColor}
-          />
         </div>
 
-        <span className={client.active ? "status-active" : "status-inactive"}>
-          {client.active ? "Activo" : "Inactivo"}
-        </span>
-
-        <button onClick={() => toggleStatus(client.id)}>Estado</button>
-        <button onClick={() => exportClientCSV(client.id)}>📁 CSV</button>
-        <button onClick={() => deleteClient(client.id)}>🗑️</button>
-      </div>
-
-      {/* ===== ALERTAS ===== */}
-      {alerts.length > 0 && (
-        <div style={{ marginTop: "8px" }}>
-          {alerts.map((a, i) => (
-            <small key={i} className="muted">
-              {a}
-            </small>
-          ))}
-        </div>
-      )}
-
-      {/* ===== BARRA ADHERENCIA ===== */}
-      <div className="progress-wrapper">
-        <div className="progress-container">
-          <div
-            className="progress-bar"
-            style={{
-              width: `${adherencePercent}%`,
-              backgroundColor: adherenceColor,
-            }}
-          />
+        <div style={{ display: "flex", gap: 6 }}>
+          <span className={client.active ? "status-active" : "status-inactive"}>
+            {client.active ? "Activo" : "Inactivo"}
+          </span>
+          <button onClick={() => toggleStatus(client.id)}>Estado</button>
+          <button onClick={() => exportClientCSV(client.id)}>CSV</button>
+          <button onClick={() => deleteClient(client.id)}>🗑️</button>
         </div>
       </div>
 
-      {/* ===== OBJETIVO ===== */}
-      <div className="client-section">
-        <strong>🎯 Objetivo de peso</strong>
-        <div className="row">
-          <input
-            type="number"
-            placeholder="Peso objetivo (kg)"
-            value={goal}
-            onChange={(e) => setGoal(e.target.value)}
-          />
-          <button onClick={() => saveGoalWeight(client.id, Number(goal))}>
-            Guardar
-          </button>
-        </div>
+      {/* ===== BARRA ===== */}
+      <div className="progress-container">
+        <div
+          className="progress-bar"
+          style={{
+            width: `${adherencePercent}%`,
+            backgroundColor: adherenceColor,
+          }}
+        />
       </div>
 
-      {/* ===== RUTINA ===== */}
-      <div className="client-section">
-        <strong>🏋️ Rutina</strong>
-        <div className="row">
+      {/* ===== RESUMEN ===== */}
+<div className="client-section">
+  <p>🎯 Objetivo actual: {client.goalWeight || "No definido"} kg</p>
+
+  <div className="row">
+    <input
+      type="number"
+      placeholder="Nuevo objetivo (kg)"
+      value={goal}
+      onChange={(e) => setGoal(e.target.value)}
+    />
+
+    <button
+      onClick={() => {
+        saveGoalWeight(client.id, goal);
+      }}
+    >
+      Guardar objetivo
+    </button>
+  </div>
+
+  {client.progress.length >= 2 && (
+    <WeightChart
+      progress={client.progress}
+      goalWeight={client.goalWeight}
+    />
+  )}
+</div>
+
+
+      {/* ===== ACCORDION ===== */}
+      <button className="accordion" onClick={() => toggleSection("rutina")}>
+        🏋️ Rutina
+      </button>
+
+      {openSection === "rutina" && (
+        <div className="client-section accordion-content">
           <input
             placeholder="Rutina"
             value={routine}
@@ -155,25 +133,22 @@ function ClientCard({
           />
           <button
             onClick={() => {
-              if (!routine.trim()) return;
               saveRoutine(client.id, routine);
               setRoutine("");
             }}
           >
             Guardar rutina
           </button>
+          <small>Actual: {client.routine || "—"}</small>
         </div>
+      )}
 
-        {client.routine && (
-          <small className="muted">Rutina actual: {client.routine}</small>
-        )}
-      </div>
+      <button className="accordion" onClick={() => toggleSection("progreso")}>
+        📈 Progreso
+      </button>
 
-      {/* ===== PROGRESO ===== */}
-      <div className="client-section">
-        <strong>📈 Progreso</strong>
-
-        <div className="row">
+      {openSection === "progreso" && (
+        <div className="client-section accordion-content">
           <input
             type="date"
             value={progress.date}
@@ -182,7 +157,6 @@ function ClientCard({
             }
           />
           <input
-            type="number"
             placeholder="Peso (kg)"
             value={progress.weight}
             onChange={(e) =>
@@ -190,7 +164,6 @@ function ClientCard({
             }
           />
           <input
-            type="number"
             placeholder="Reps"
             value={progress.reps}
             onChange={(e) =>
@@ -199,82 +172,61 @@ function ClientCard({
           />
           <button
             onClick={() => {
-              if (!progress.date || !progress.weight) return;
               addProgress(client.id, progress);
               setProgress({ date: "", weight: "", reps: "" });
             }}
           >
             Agregar
           </button>
+
+          <ul className="progress-list">
+            {client.progress.map((p, i) => (
+              <li key={i}>
+                {p.date} — {p.weight} kg — {p.reps} reps
+              </li>
+            ))}
+          </ul>
         </div>
+      )}
 
-        {client.progress.length >= 2 && (
-          <WeightChart
-            progress={client.progress}
-            goalWeight={client.goalWeight}
-          />
-        )}
-      </div>
+      <button className="accordion" onClick={() => toggleSection("nutricion")}>
+        🥗 Nutrición
+      </button>
 
-      {/* ===== NUTRICIÓN ===== */}
-      <div className="client-section">
-        <strong>🍽️ Nutrición</strong>
-
-        <div className="row">
+      {openSection === "nutricion" && (
+        <div className="client-section accordion-content">
           <input
             placeholder="Calorías"
             value={nutritionForm.calories}
             onChange={(e) =>
-              setNutritionForm({ ...nutritionForm, calories: e.target.value })
+              setNutritionForm({
+                ...nutritionForm,
+                calories: e.target.value,
+              })
             }
           />
           <input
             placeholder="Proteína"
             value={nutritionForm.protein}
             onChange={(e) =>
-              setNutritionForm({ ...nutritionForm, protein: e.target.value })
+              setNutritionForm({
+                ...nutritionForm,
+                protein: e.target.value,
+              })
             }
           />
-          <input
-            placeholder="Carbs"
-            value={nutritionForm.carbs}
-            onChange={(e) =>
-              setNutritionForm({ ...nutritionForm, carbs: e.target.value })
-            }
-          />
-          <input
-            placeholder="Grasas"
-            value={nutritionForm.fats}
-            onChange={(e) =>
-              setNutritionForm({ ...nutritionForm, fats: e.target.value })
-            }
-          />
-        </div>
 
-        <input
-          placeholder="Notas"
-          value={nutritionForm.notes}
-          onChange={(e) =>
-            setNutritionForm({ ...nutritionForm, notes: e.target.value })
-          }
-        />
+          <button onClick={() => saveNutrition(client.id, nutritionForm)}>
+            Guardar nutrición
+          </button>
 
-        <button onClick={() => saveNutrition(client.id, nutritionForm)}>
-          Guardar nutrición
-        </button>
-      </div>
+          <hr />
 
-      {/* ===== NUTRICIÓN DIARIA ===== */}
-      <div className="client-section">
-        <strong>🥗 Nutrición diaria</strong>
-
-        <div className="row">
           <input
             type="date"
             value={nutritionDate}
             onChange={(e) => setNutritionDate(e.target.value)}
           />
-
           <label>
             <input
               type="checkbox"
@@ -282,13 +234,12 @@ function ClientCard({
               onChange={(e) =>
                 setNutritionCompleted(e.target.checked)
               }
-            />{" "}
+            />
             Cumplió dieta
           </label>
 
           <button
             onClick={() => {
-              if (!nutritionDate) return;
               addNutritionLog(client.id, {
                 date: nutritionDate,
                 completed: nutritionCompleted,
@@ -300,7 +251,7 @@ function ClientCard({
             Registrar día
           </button>
         </div>
-      </div>
+      )}
     </li>
   );
 }

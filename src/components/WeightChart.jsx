@@ -22,7 +22,12 @@ function WeightChart({ progress, goalWeight }) {
       : null;
 
   return (
-    <svg viewBox="0 0 300 120" preserveAspectRatio="none">
+    <svg
+  viewBox="0 0 300 120"
+  preserveAspectRatio="none"
+  height="140"
+  style={{ width: "100%", maxHeight: "140px" }}
+>
       {/* Línea objetivo */}
       {goalWeight && (
         <line

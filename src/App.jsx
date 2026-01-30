@@ -108,6 +108,34 @@ function App() {
           : c
       )
     );
+const exportClientCSV = (id) => {
+  const client = clients.find((c) => c.id === id);
+  if (!client) return;
+
+  const rows = [
+    ["Nombre", client.name],
+    ["Activo", client.active ? "Sí" : "No"],
+    ["Objetivo peso", client.goalWeight || ""],
+    ["Rutina", client.routine || ""],
+    [],
+    ["Fecha", "Peso", "Reps"],
+    ...(client.progress || []).map((p) => [
+      p.date,
+      p.weight,
+      p.reps,
+    ]),
+  ];
+
+  const csv = rows.map((r) => r.join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${client.name}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+};
 
   return (
     <div className="app">
@@ -125,16 +153,18 @@ function App() {
       <ul style={{ padding: 0 }}>
         {clients.map((client) => (
           <ClientCard
-            key={client.id}
-            client={client}
-            toggleStatus={toggleStatus}
-            deleteClient={deleteClient}
-            saveRoutine={saveRoutine}
-            addProgress={addProgress}
-            saveNutrition={saveNutrition}
-            addNutritionLog={addNutritionLog}
-            saveGoalWeight={saveGoalWeight}
-          />
+  key={client.id}
+  client={client}
+  toggleStatus={toggleStatus}
+  deleteClient={deleteClient}
+  saveRoutine={saveRoutine}
+  addProgress={addProgress}
+  saveNutrition={saveNutrition}
+  addNutritionLog={addNutritionLog}
+  saveGoalWeight={saveGoalWeight}
+  exportClientCSV={exportClientCSV}
+/>
+
         ))}
       </ul>
     </div>

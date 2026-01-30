@@ -130,6 +130,7 @@ input::placeholder {
   border-radius: 10px;
   padding: 10px 12px;
   font-size: 15px;
+  color: #ffffff;
   transition: background 0.2s ease, border-color 0.2s ease;
 }
 
