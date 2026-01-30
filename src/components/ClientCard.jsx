@@ -290,5 +290,4 @@ function ClientCard({
     </li>
   );
 }
-// TEST BACKUP
 export default ClientCard;
