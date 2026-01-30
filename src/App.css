@@ -1,0 +1,455 @@
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.logo {
+  height: 6em;
+  padding: 1.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.card {
+  padding: 2em;
+}
+
+.read-the-docs {
+  color: #888;
+}
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 32px;
+  box-sizing: border-box;
+}
+.client-card {
+  list-style: none;
+  background-color: #1b1b1b;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+/* Encabezado (nombre + estado + botón) */
+.client-card > strong {
+  font-size: 18px;
+}
+
+.client-card button {
+  margin-left: 10px;
+  margin-top: 6px;
+}
+
+/* Bloques internos */
+.client-card > div {
+  margin-top: 12px;
+}
+
+/* Inputs */
+.client-card input {
+  margin-right: 8px;
+  margin-top: 6px;
+  padding: 4px 6px;
+}
+
+/* Progreso listado */
+.client-card ul {
+  margin-top: 10px;
+  padding-left: 18px;
+}
+
+.client-card li {
+  margin-bottom: 4px;
+}
+.dashboard {
+  background-color: #121212;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 24px;
+}
+
+/* métricas */
+.dashboard p {
+  margin: 8px 0;
+  font-size: 15px;
+}
+
+/* estados */
+.status-active {
+  color: #00ff99;
+  font-weight: 600;
+}
+
+.status-inactive {
+  color: #ff6666;
+  font-weight: 600;
+}
+
+/* barra de progreso */
+.dashboard .progress-container {
+  margin-top: 14px;
+  height: 20px;
+  background-color: #222;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.dashboard .progress-bar {
+  height: 100%;
+  background-color: #00ff99;
+  max-width: 100%;
+  transition: width 0.3s ease;
+}
+
+/* texto pequeño */
+.dashboard small {
+  display: block;
+  margin-top: 6px;
+  color: #aaa;
+}
+.dashboard {
+  background-color: #121212;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 24px;
+}
+
+.dashboard h2 {
+  margin-bottom: 12px;
+}
+
+.dashboard p {
+  margin: 8px 0;
+  font-size: 15px;
+}
+
+/* estados */
+.status-active {
+  color: #00ff99;
+  font-weight: 600;
+}
+
+.status-inactive {
+  color: #ff6666;
+  font-weight: 600;
+}
+
+/* ===== Dashboard Progress Bar ===== */
+
+.progress-wrapper {
+  margin-top: 10px;
+}
+
+.progress-container {
+  width: 100%;
+  height: 10px;
+  background: #222;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 50%;
+  background: #00ff99;
+  transition: width 0.3s ease;
+}
+.dashboard small {
+  display: block;
+  margin-top: 6px;
+  color: #aaa;
+}
+/* ===== ClientCard UX ===== */
+
+.client-card {
+  background: #1b1b1b;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  list-style: none;
+}
+
+/* Header: nombre + estado + acción */
+.client-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.client-header strong {
+  font-size: 18px;
+}
+
+.client-header button {
+  margin-left: auto;
+}
+
+/* Secciones internas */
+.client-section {
+  border-top: 1px solid #222;
+  padding-top: 10px;
+  margin-top: 10px;
+}
+
+/* Filas de inputs */
+.row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.row input {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #444;
+  background: #111;
+  color: #eee;
+}
+
+.row button {
+  padding: 6px 10px;
+}
+
+/* Texto suave */
+.muted {
+  margin-top: 6px;
+  color: #bbb;
+}
+
+/* Lista de progreso */
+.progress-list {
+  margin-top: 10px;
+  padding-left: 18px;
+}
+
+.progress-list li {
+  margin-bottom: 4px;
+}
+/* ================= UX MÓVIL ================= */
+
+@media (max-width: 768px) {
+
+  .app {
+    padding: 12px;
+  }
+
+  h1 {
+    font-size: 22px;
+    margin-bottom: 12px;
+  }
+
+  /* ===== TARJETAS ===== */
+  .client-card {
+    padding: 14px;
+    border-radius: 14px;
+  }
+
+  /* ===== HEADER ===== */
+  .client-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .client-header button {
+    width: 100%;
+    margin-top: 6px;
+  }
+
+  /* ===== ACCORDION ===== */
+  .accordion {
+    width: 100%;
+    text-align: left;
+    padding: 14px;
+    font-size: 16px;
+    border-radius: 10px;
+    margin-top: 10px;
+  }
+
+  /* ===== SECCIONES ===== */
+  .client-section {
+    margin-top: 10px;
+    padding: 10px 0;
+  }
+
+  /* ===== INPUTS ===== */
+  input {
+    width: 100%;
+    font-size: 16px; /* evita zoom en iOS */
+    padding: 12px;
+    margin-bottom: 8px;
+  }
+
+  /* ===== BOTONES ===== */
+  button {
+    width: 100%;
+    padding: 14px;
+    font-size: 16px;
+    border-radius: 10px;
+    margin-top: 6px;
+  }
+
+  button:disabled {
+    opacity: 0.6;
+  }
+
+  /* ===== LISTAS ===== */
+  .progress-list {
+    padding-left: 0;
+  }
+
+  .progress-list li {
+    list-style: none;
+    background: #161616;
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 6px;
+    font-size: 14px;
+  }
+
+  /* ===== DASHBOARD ===== */
+  .dashboard {
+    padding: 14px;
+  }
+
+  .dashboard p {
+    font-size: 14px;
+  }
+
+  .dashboard h2 {
+    font-size: 18px;
+  }
+}
+/* ===== ALERTAS INTELIGENTES ===== */
+
+.client-header small {
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.client-header .status-inactive {
+  color: #ff5555;
+}
+
+.client-header .status-active {
+  color: #00ff99;
+}
+svg {
+  margin-top: 10px;
+}
+
+svg polyline {
+  transition: all 0.3s ease;
+}
+/* ===== MICRO ANIMACIONES ===== */
+
+button {
+  transition: transform 0.1s ease, background 0.2s ease, opacity 0.2s ease;
+}
+
+button:active {
+  transform: scale(0.97);
+}
+
+.accordion {
+  transition: background 0.2s ease;
+}
+
+.accordion:hover {
+  background: #1f1f1f;
+}
+
+.client-card {
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.client-card:hover {
+  box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+  transform: translateY(-2px);
+}
+.client-section {
+  border-top: 1px solid #222;
+  padding-top: 10px;
+}
+
+.muted {
+  opacity: 0.75;
+}
+
+small {
+  line-height: 1.2;
+}
+.client-section {
+  border-top: 1px solid #222;
+  padding-top: 10px;
+}
+
+.muted {
+  opacity: 0.75;
+}
+
+small {
+  line-height: 1.2;
+}
+/* ===== GRÁFICA DE PESO ===== */
+
+.weight-chart-wrapper {
+  width: 100%;
+  max-width: 100%;
+  height: 160px;
+  margin-top: 10px;
+  padding: 10px;
+  background: #111;
+  border: 1px solid #222;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* Ajuste del SVG */
+.weight-chart-wrapper svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Línea más estética */
+.weight-chart-wrapper polyline {
+  stroke-width: 3;
+}
+/* ===== GRÁFICA DE PESO ===== */
+
+.weight-chart-wrapper {
+  max-height: 160px;     /* 👈 controla tamaño */
+  margin-top: 10px;
+}
+
+svg {
+  max-height: 160px;
+}
