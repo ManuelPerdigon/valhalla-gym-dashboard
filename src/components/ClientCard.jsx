@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import WeightChart from "./WeightChart";
+import MiniClientWeight from "./MiniClientWeight";
 
 function ClientCard({
   client,
@@ -12,13 +13,8 @@ function ClientCard({
   saveGoalWeight,
   exportClientCSV,
 }) {
-  /* ===== ESTADOS ===== */
   const [routine, setRoutine] = useState("");
-  const [goal, setGoal] = useState("");
-
-  useEffect(() => {
-    setGoal(client.goalWeight ?? "");
-  }, [client.goalWeight]);
+  const [goal, setGoal] = useState(client.goalWeight || "");
 
   const [progress, setProgress] = useState({
     date: "",
@@ -37,10 +33,14 @@ function ClientCard({
   const [nutritionDate, setNutritionDate] = useState("");
   const [nutritionCompleted, setNutritionCompleted] = useState(false);
 
+  useEffect(() => {
+    setGoal(client.goalWeight || "");
+  }, [client.goalWeight]);
+
   /* ===== ADHERENCIA ===== */
   const adherence = client.nutrition?.adherence || [];
   const totalDays = adherence.length;
-  const completedDays = adherence.filter((d) => d.completed).length;
+  const completedDays = adherence.filter(d => d.completed).length;
   const adherencePercent = totalDays
     ? Math.round((completedDays / totalDays) * 100)
     : 0;
@@ -50,15 +50,49 @@ function ClientCard({
   else if (adherencePercent >= 40) adherenceColor = "#ffcc00";
   else if (totalDays > 0) adherenceColor = "#ff5555";
 
+  /* ===== ALERTAS ===== */
+  const alerts = [];
+  let progressColor = "#666";
+
+  if (client.progress.length === 0) {
+    alerts.push("⚠️ Sin registros de progreso");
+  }
+
+  if (client.goalWeight && client.progress.length > 0) {
+    const lastWeight =
+      Number(client.progress[client.progress.length - 1].weight);
+    const diff = Math.abs(lastWeight - client.goalWeight);
+
+    if (diff <= 1) {
+      alerts.push("🟢 Objetivo casi logrado");
+      progressColor = "#00ff99";
+    } else if (diff <= 4) {
+      alerts.push("🟡 Cerca del objetivo");
+      progressColor = "#ffcc00";
+    } else {
+      alerts.push("🔴 Muy lejos del objetivo");
+      progressColor = "#ff5555";
+    }
+  }
+
+  if (totalDays > 3 && adherencePercent < 40) {
+    alerts.push("🍽️ Mala adherencia nutricional");
+  }
+
   return (
-    <li className="client-card">
+    <li className="client-card" style={{ borderLeft: `4px solid ${progressColor}` }}>
       {/* ===== HEADER ===== */}
       <div className="client-header">
-        <div>
+        <div style={{ flex: 1 }}>
           <strong>{client.name}</strong>
           <small style={{ color: adherenceColor }}>
             {adherencePercent}% adherencia
           </small>
+
+          <MiniClientWeight
+            progress={client.progress}
+            color={progressColor}
+          />
         </div>
 
         <span className={client.active ? "status-active" : "status-inactive"}>
@@ -66,21 +100,22 @@ function ClientCard({
         </span>
 
         <button onClick={() => toggleStatus(client.id)}>Estado</button>
-
         <button onClick={() => exportClientCSV(client.id)}>📁 CSV</button>
-
-        <button
-          onClick={() => {
-            if (window.confirm("¿Eliminar cliente?")) {
-              deleteClient(client.id);
-            }
-          }}
-        >
-          🗑️
-        </button>
+        <button onClick={() => deleteClient(client.id)}>🗑️</button>
       </div>
 
-      {/* ===== BARRA NUTRICIÓN ===== */}
+      {/* ===== ALERTAS ===== */}
+      {alerts.length > 0 && (
+        <div style={{ marginTop: "8px" }}>
+          {alerts.map((a, i) => (
+            <small key={i} className="muted">
+              {a}
+            </small>
+          ))}
+        </div>
+      )}
+
+      {/* ===== BARRA ADHERENCIA ===== */}
       <div className="progress-wrapper">
         <div className="progress-container">
           <div
@@ -103,12 +138,7 @@ function ClientCard({
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
           />
-          <button
-            onClick={() => {
-              if (goal === "") return;
-              saveGoalWeight(client.id, Number(goal));
-            }}
-          >
+          <button onClick={() => saveGoalWeight(client.id, Number(goal))}>
             Guardar
           </button>
         </div>
@@ -135,9 +165,7 @@ function ClientCard({
         </div>
 
         {client.routine && (
-          <small className="muted">
-            Rutina actual: {client.routine}
-          </small>
+          <small className="muted">Rutina actual: {client.routine}</small>
         )}
       </div>
 
@@ -180,16 +208,6 @@ function ClientCard({
           </button>
         </div>
 
-        {client.progress.length > 0 && (
-          <ul className="progress-list">
-            {client.progress.map((p, i) => (
-              <li key={i}>
-                📅 {p.date} — ⚖️ {p.weight} kg — 🔁 {p.reps} reps
-              </li>
-            ))}
-          </ul>
-        )}
-
         {client.progress.length >= 2 && (
           <WeightChart
             progress={client.progress}
@@ -198,13 +216,12 @@ function ClientCard({
         )}
       </div>
 
-      {/* ===== PLAN NUTRICIONAL ===== */}
+      {/* ===== NUTRICIÓN ===== */}
       <div className="client-section">
-        <strong>🍽️ Plan nutricional</strong>
+        <strong>🍽️ Nutrición</strong>
 
         <div className="row">
           <input
-            type="number"
             placeholder="Calorías"
             value={nutritionForm.calories}
             onChange={(e) =>
@@ -212,7 +229,6 @@ function ClientCard({
             }
           />
           <input
-            type="number"
             placeholder="Proteína"
             value={nutritionForm.protein}
             onChange={(e) =>
@@ -220,7 +236,6 @@ function ClientCard({
             }
           />
           <input
-            type="number"
             placeholder="Carbs"
             value={nutritionForm.carbs}
             onChange={(e) =>
@@ -228,7 +243,6 @@ function ClientCard({
             }
           />
           <input
-            type="number"
             placeholder="Grasas"
             value={nutritionForm.fats}
             onChange={(e) =>
@@ -268,7 +282,7 @@ function ClientCard({
               onChange={(e) =>
                 setNutritionCompleted(e.target.checked)
               }
-            />
+            />{" "}
             Cumplió dieta
           </label>
 
@@ -290,4 +304,5 @@ function ClientCard({
     </li>
   );
 }
+
 export default ClientCard;
