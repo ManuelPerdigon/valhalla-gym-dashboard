@@ -66,14 +66,12 @@ function App() {
       )
     );
 
-  const addProgress = (id, progress) =>
-    setClients((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? { ...c, progress: [...c.progress, progress] }
-          : c
-      )
-    );
+  const addProgress = (id, newProgressArray) =>
+  setClients((prev) =>
+    prev.map((c) =>
+      c.id === id ? { ...c, progress: newProgressArray } : c
+    )
+  );
 
   const saveGoalWeight = (id, goalWeight) =>
     setClients((prev) =>
