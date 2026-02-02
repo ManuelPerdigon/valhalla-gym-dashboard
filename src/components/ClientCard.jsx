@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import WeightChart from "./WeightChart";
 import NutritionChart from "./NutritionChart";
 
@@ -12,8 +12,19 @@ function ClientCard({
   addNutritionLog,
   saveGoalWeight,
   exportClientCSV,
+  isClientView = false,
 }) {
   const [openSection, setOpenSection] = useState(null);
+
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  // ✅ Reglas anti-trampa / calidad
+  const MIN_WEIGHT = 30;
+  const MAX_WEIGHT = 250;
+
+  // ✅ Horario permitido para CLIENTE
+  const ALLOWED_START_HOUR = 6;  // 06:00
+  const ALLOWED_END_HOUR = 23;   // 23:00
 
   const [routine, setRoutine] = useState("");
   const [goal, setGoal] = useState(client.goalWeight || "");
@@ -36,9 +47,12 @@ function ClientCard({
     reps: "",
   });
 
+  const [progressError, setProgressError] = useState("");
+
   /* ===== NUTRICIÓN ===== */
   const [nutritionDate, setNutritionDate] = useState("");
   const [nutritionCompleted, setNutritionCompleted] = useState(false);
+  const [nutritionError, setNutritionError] = useState("");
 
   const adherence = client.nutrition?.adherence || [];
   const adherencePercent = adherence.length
@@ -57,7 +71,57 @@ function ClientCard({
   const toggleSection = (section) =>
     setOpenSection(openSection === section ? null : section);
 
-  /* ===== PROGRESO HELPERS ===== */
+  // ✅ En modo cliente: cuando abre Progreso o Nutrición, pre-cargamos HOY
+  useEffect(() => {
+    if (!isClientView) return;
+
+    if (openSection === "progreso") {
+      setProgressForm((prev) => ({ ...prev, date: today }));
+      setProgressError("");
+    }
+    if (openSection === "nutricion") {
+      setNutritionDate(today);
+      setNutritionError("");
+    }
+  }, [openSection, isClientView, today]);
+
+  const progressDates = useMemo(() => {
+    return new Set((client.progress || []).map((p) => p.date));
+  }, [client.progress]);
+
+  const nutritionDates = useMemo(() => {
+    return new Set((adherence || []).map((d) => d.date));
+  }, [adherence]);
+
+  // ✅ Normaliza y redondea a 1 decimal
+  const toOneDecimal = (value) => {
+    const n = Number(value);
+    if (Number.isNaN(n)) return null;
+    return Math.round(n * 10) / 10;
+  };
+
+  const validateWeight = (value) => {
+    const n = Number(value);
+    if (Number.isNaN(n)) return "Peso inválido.";
+    if (n < MIN_WEIGHT || n > MAX_WEIGHT)
+      return `Peso fuera de rango (${MIN_WEIGHT}–${MAX_WEIGHT} kg).`;
+    return null;
+  };
+
+  // ✅ Valida horario permitido (solo CLIENTE)
+  const isWithinAllowedTime = () => {
+    const now = new Date();
+    const hour = now.getHours(); // hora local del dispositivo
+
+    // Permitimos desde 06:00 hasta 23:59
+    return hour >= ALLOWED_START_HOUR && hour <= ALLOWED_END_HOUR;
+  };
+
+  const timeWindowMessage = `Solo puedes registrar entre ${String(
+    ALLOWED_START_HOUR
+  ).padStart(2, "0")}:00 y ${String(ALLOWED_END_HOUR).padStart(2, "0")}:59.`;
+
+  /* ===== PROGRESO HELPERS (solo admin usa edit/delete) ===== */
   const startEdit = (index, e) => {
     e.stopPropagation();
     setEditingIndex(index);
@@ -66,14 +130,18 @@ function ClientCard({
 
   const saveEdit = (e) => {
     e.stopPropagation();
+
     if (!editingProgress.date || editingProgress.weight === "") return;
+
+    const rounded = toOneDecimal(editingProgress.weight);
+    if (rounded === null) return;
+
+    const weightErr = validateWeight(rounded);
+    if (weightErr) return;
 
     const updated = client.progress.map((p, i) =>
       i === editingIndex
-        ? {
-            ...editingProgress,
-            weight: Number(editingProgress.weight),
-          }
+        ? { ...editingProgress, weight: rounded }
         : p
     );
 
@@ -97,6 +165,94 @@ function ClientCard({
     });
   };
 
+  const handleAddProgress = () => {
+    setProgressError("");
+
+    // ✅ Horario permitido (solo cliente)
+    if (isClientView && !isWithinAllowedTime()) {
+      setProgressError(timeWindowMessage);
+      return;
+    }
+
+    const dateToUse = isClientView ? today : progressForm.date;
+
+    if (!dateToUse || progressForm.weight === "") return;
+
+    // ✅ Cliente solo HOY
+    if (isClientView && dateToUse !== today) {
+      setProgressError("Solo puedes registrar el progreso de HOY.");
+      return;
+    }
+
+    const rounded = toOneDecimal(progressForm.weight);
+    if (rounded === null) {
+      setProgressError("Peso inválido.");
+      return;
+    }
+
+    // ✅ Validación peso
+    const weightErr = validateWeight(rounded);
+    if (weightErr) {
+      setProgressError(weightErr);
+      return;
+    }
+
+    // ✅ Anti-duplicado por fecha
+    if (progressDates.has(dateToUse)) {
+      setProgressError("Ya existe un registro de progreso para HOY.");
+      return;
+    }
+
+    addProgress(client.id, [
+      ...(client.progress || []),
+      {
+        date: dateToUse,
+        weight: rounded, // ✅ 1 decimal máximo
+        reps: progressForm.reps,
+      },
+    ]);
+
+    setProgressForm({
+      date: isClientView ? today : "",
+      weight: "",
+      reps: "",
+    });
+  };
+
+  const handleAddNutrition = () => {
+    setNutritionError("");
+
+    // ✅ Horario permitido (solo cliente)
+    if (isClientView && !isWithinAllowedTime()) {
+      setNutritionError(timeWindowMessage);
+      return;
+    }
+
+    const dateToUse = isClientView ? today : nutritionDate;
+
+    if (!dateToUse) return;
+
+    // ✅ Cliente solo HOY
+    if (isClientView && dateToUse !== today) {
+      setNutritionError("Solo puedes registrar la nutrición de HOY.");
+      return;
+    }
+
+    // ✅ Anti-duplicado por fecha
+    if (nutritionDates.has(dateToUse)) {
+      setNutritionError("Ya existe un registro de nutrición para HOY.");
+      return;
+    }
+
+    addNutritionLog(client.id, {
+      date: dateToUse,
+      completed: nutritionCompleted,
+    });
+
+    setNutritionDate(isClientView ? today : "");
+    setNutritionCompleted(false);
+  };
+
   return (
     <li className="client-card">
       {/* ===== HEADER ===== */}
@@ -108,22 +264,25 @@ function ClientCard({
           </small>
         </div>
 
-        <div style={{ display: "flex", gap: 6 }}>
-          <span
-            className={client.active ? "status-active" : "status-inactive"}
-          >
-            {client.active ? "Activo" : "Inactivo"}
-          </span>
-          <button type="button" onClick={() => toggleStatus(client.id)}>
-            Estado
-          </button>
-          <button type="button" onClick={() => exportClientCSV(client.id)}>
-            CSV
-          </button>
-          <button type="button" onClick={() => deleteClient(client.id)}>
-            🗑️
-          </button>
-        </div>
+        {/* 🔒 BOTONES SOLO ADMIN */}
+        {!isClientView && (
+          <div style={{ display: "flex", gap: 6 }}>
+            <span
+              className={client.active ? "status-active" : "status-inactive"}
+            >
+              {client.active ? "Activo" : "Inactivo"}
+            </span>
+            <button type="button" onClick={() => toggleStatus(client.id)}>
+              Estado
+            </button>
+            <button type="button" onClick={() => exportClientCSV(client.id)}>
+              CSV
+            </button>
+            <button type="button" onClick={() => deleteClient(client.id)}>
+              🗑️
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ===== BARRA ===== */}
@@ -141,20 +300,24 @@ function ClientCard({
       <div className="client-section">
         <p>🎯 Objetivo actual: {client.goalWeight || "No definido"} kg</p>
 
-        <div className="row">
-          <input
-            type="number"
-            placeholder="Nuevo objetivo (kg)"
-            value={goal}
-            onChange={(e) => setGoal(e.target.value)}
-          />
-          <button
-            type="button"
-            onClick={() => saveGoalWeight(client.id, goal)}
-          >
-            Guardar objetivo
-          </button>
-        </div>
+        {isClientView ? (
+          <small className="muted">El objetivo lo asigna tu coach.</small>
+        ) : (
+          <div className="row">
+            <input
+              type="number"
+              placeholder="Nuevo objetivo (kg)"
+              value={goal}
+              onChange={(e) => setGoal(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={() => saveGoalWeight(client.id, goal)}
+            >
+              Guardar objetivo
+            </button>
+          </div>
+        )}
 
         {client.progress.length >= 2 && (
           <WeightChart
@@ -175,22 +338,33 @@ function ClientCard({
 
       {openSection === "rutina" && (
         <div className="client-section accordion-content">
-          <input
-            placeholder="Rutina"
-            value={routine}
-            onChange={(e) => setRoutine(e.target.value)}
-          />
-          <button
-            type="button"
-            onClick={() => {
-              if (!routine.trim()) return;
-              saveRoutine(client.id, routine);
-              setRoutine("");
-            }}
-          >
-            Guardar rutina
-          </button>
-          <small>Actual: {client.routine || "—"}</small>
+          {isClientView ? (
+            <>
+              <p className="muted" style={{ margin: "6px 0 0" }}>
+                {client.routine || "—"}
+              </p>
+              <small className="muted">La rutina la asigna tu coach.</small>
+            </>
+          ) : (
+            <>
+              <input
+                placeholder="Rutina"
+                value={routine}
+                onChange={(e) => setRoutine(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!routine.trim()) return;
+                  saveRoutine(client.id, routine);
+                  setRoutine("");
+                }}
+              >
+                Guardar rutina
+              </button>
+              <small>Actual: {client.routine || "—"}</small>
+            </>
+          )}
         </div>
       )}
 
@@ -207,18 +381,25 @@ function ClientCard({
         <div className="client-section accordion-content">
           <input
             type="date"
-            value={progressForm.date}
+            value={isClientView ? today : progressForm.date}
+            disabled={isClientView}
+            max={isClientView ? today : undefined}
             onChange={(e) =>
               setProgressForm({ ...progressForm, date: e.target.value })
             }
           />
+
           <input
-            placeholder="Peso (kg)"
+            type="number"
+            step="0.1"
+            inputMode="decimal"
+            placeholder={`Peso (kg) ${MIN_WEIGHT}-${MAX_WEIGHT} (1 decimal)`}
             value={progressForm.weight}
             onChange={(e) =>
               setProgressForm({ ...progressForm, weight: e.target.value })
             }
           />
+
           <input
             placeholder="Reps"
             value={progressForm.reps}
@@ -227,23 +408,13 @@ function ClientCard({
             }
           />
 
-          <button
-            type="button"
-            onClick={() => {
-              if (!progressForm.date || progressForm.weight === "") return;
-              addProgress(client.id, [
-                ...client.progress,
-                {
-                  date: progressForm.date,
-                  weight: Number(progressForm.weight),
-                  reps: progressForm.reps,
-                },
-              ]);
-              setProgressForm({ date: "", weight: "", reps: "" });
-            }}
-          >
+          <button type="button" onClick={handleAddProgress}>
             Agregar
           </button>
+
+          {progressError && (
+            <small style={{ color: "#ff5555" }}>{progressError}</small>
+          )}
 
           <ul className="progress-list">
             {client.progress.map((p, i) => (
@@ -262,6 +433,8 @@ function ClientCard({
                     />
                     <input
                       type="number"
+                      step="0.1"
+                      inputMode="decimal"
                       value={editingProgress.weight}
                       onChange={(e) =>
                         setEditingProgress({
@@ -295,23 +468,31 @@ function ClientCard({
                 ) : (
                   <>
                     {p.date} — {p.weight} kg — {p.reps || "—"}
-                    <button
-                      type="button"
-                      onClick={(e) => startEdit(i, e)}
-                    >
-                      ✏️
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => deleteProgress(i, e)}
-                    >
-                      🗑️
-                    </button>
+
+                    {!isClientView && (
+                      <>
+                        <button type="button" onClick={(e) => startEdit(i, e)}>
+                          ✏️
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => deleteProgress(i, e)}
+                        >
+                          🗑️
+                        </button>
+                      </>
+                    )}
                   </>
                 )}
               </li>
             ))}
           </ul>
+
+          {isClientView && (
+            <small className="muted">
+              Nota: solo puedes registrar HOY, sin editar/borrar, y en horario permitido.
+            </small>
+          )}
         </div>
       )}
 
@@ -328,7 +509,9 @@ function ClientCard({
         <div className="client-section accordion-content">
           <input
             type="date"
-            value={nutritionDate}
+            value={isClientView ? today : nutritionDate}
+            disabled={isClientView}
+            max={isClientView ? today : undefined}
             onChange={(e) => setNutritionDate(e.target.value)}
           />
 
@@ -336,27 +519,18 @@ function ClientCard({
             <input
               type="checkbox"
               checked={nutritionCompleted}
-              onChange={(e) =>
-                setNutritionCompleted(e.target.checked)
-              }
+              onChange={(e) => setNutritionCompleted(e.target.checked)}
             />
             Cumplió dieta
           </label>
 
-          <button
-            type="button"
-            onClick={() => {
-              if (!nutritionDate) return;
-              addNutritionLog(client.id, {
-                date: nutritionDate,
-                completed: nutritionCompleted,
-              });
-              setNutritionDate("");
-              setNutritionCompleted(false);
-            }}
-          >
+          <button type="button" onClick={handleAddNutrition}>
             Registrar día
           </button>
+
+          {nutritionError && (
+            <small style={{ color: "#ff5555" }}>{nutritionError}</small>
+          )}
 
           <NutritionChart adherence={adherence} />
 
@@ -364,15 +538,23 @@ function ClientCard({
             {adherence.map((d) => (
               <li key={d.date}>
                 {d.date} — {d.completed ? "✔ Cumplió" : "✘ No cumplió"}
-                <button
-                  type="button"
-                  onClick={(e) => removeNutritionDay(d.date, e)}
-                >
-                  🗑️
-                </button>
+                {!isClientView && (
+                  <button
+                    type="button"
+                    onClick={(e) => removeNutritionDay(d.date, e)}
+                  >
+                    🗑️
+                  </button>
+                )}
               </li>
             ))}
           </ul>
+
+          {isClientView && (
+            <small className="muted">
+              Nota: solo puedes registrar HOY, sin borrar, y en horario permitido.
+            </small>
+          )}
         </div>
       )}
     </li>
