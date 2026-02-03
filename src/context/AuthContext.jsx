@@ -1,83 +1,41 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
+import { users } from "../data/users";
 
 const AuthContext = createContext(null);
-
-const AUTH_KEY = "valhalla_auth_user";
-const USERS_KEY = "valhalla_users";
-
-function seedDefaultUsersIfEmpty() {
-  const existing = localStorage.getItem(USERS_KEY);
-  if (existing) return;
-
-  const defaultUsers = [
-    {
-      id: Date.now(),
-      role: "admin",
-      name: "Admin",
-      email: "admin@valhalla.com",
-      password: "admin123",
-      clientId: null,
-      createdAt: new Date().toISOString(),
-    },
-  ];
-
-  localStorage.setItem(USERS_KEY, JSON.stringify(defaultUsers));
-}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
 
+  // sesión persistente
   useEffect(() => {
-    seedDefaultUsersIfEmpty();
-
-    const stored = localStorage.getItem(AUTH_KEY);
+    const stored = localStorage.getItem("valhalla_session");
     if (stored) setUser(JSON.parse(stored));
   }, []);
 
-  const login = (email, password) => {
-    const users = JSON.parse(localStorage.getItem(USERS_KEY) || "[]");
-
+  const login = (username, password) => {
     const found = users.find(
-      (u) =>
-        u.email.toLowerCase() === email.toLowerCase() &&
-        u.password === password
+      (u) => u.username === username && u.password === password
     );
+    if (!found) return { ok: false, message: "Usuario o contraseña incorrectos." };
 
-    if (!found) return { ok: false, message: "Credenciales incorrectas" };
-
-    // No guardamos password en sesión
-    const safeUser = {
-      id: found.id,
-      role: found.role,
-      name: found.name,
-      email: found.email,
-      clientId: found.clientId ?? null,
-    };
-
-    setUser(safeUser);
-    localStorage.setItem(AUTH_KEY, JSON.stringify(safeUser));
+    const session = { id: found.id, username: found.username, role: found.role };
+    setUser(session);
+    localStorage.setItem("valhalla_session", JSON.stringify(session));
     return { ok: true };
   };
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem(AUTH_KEY);
+    localStorage.removeItem("valhalla_session");
   };
 
-  const value = useMemo(() => ({ user, login, logout }), [user]);
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ user, login, logout, users }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {
   return useContext(AuthContext);
-}
-
-export function getStoredUsers() {
-  seedDefaultUsersIfEmpty();
-  return JSON.parse(localStorage.getItem(USERS_KEY) || "[]");
-}
-
-export function setStoredUsers(users) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
 }

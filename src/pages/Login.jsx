@@ -1,69 +1,54 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
-  const { user, login } = useAuth();
+  const { login } = useAuth();
   const navigate = useNavigate();
 
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
 
-  useEffect(() => {
-    if (user) {
-      navigate(user.role === "admin" ? "/admin" : "/client", { replace: true });
-    }
-  }, [user, navigate]);
-
-  const onSubmit = (e) => {
-    e.preventDefault();
+  const handleLogin = () => {
     setErr("");
-
-    const res = login(email.trim(), password);
+    const res = login(username.trim(), password);
     if (!res.ok) {
-      setErr(res.message || "Error");
+      setErr(res.message);
       return;
     }
-    // useEffect redirige
+    // redirige según rol
+    navigate("/", { replace: true });
   };
 
   return (
     <div className="app">
       <h1>Valhalla Gym</h1>
-
       <div className="dashboard">
-        <h2>🔐 Iniciar sesión</h2>
+        <h2>Iniciar sesión</h2>
 
-        <form onSubmit={onSubmit} className="client-section">
-          <div className="row">
-            <input
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="username"
-            />
-            <input
-              placeholder="Contraseña"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-            />
-            <button type="submit">Entrar</button>
-          </div>
+        <div className="row">
+          <input
+            placeholder="Usuario"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+          />
+          <input
+            placeholder="Contraseña"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <button type="button" onClick={handleLogin}>
+            Entrar
+          </button>
+        </div>
 
-          {err && <small style={{ color: "#ff5555" }}>{err}</small>}
+        {err && <small style={{ color: "#ff5555" }}>{err}</small>}
 
-          <div style={{ marginTop: 12 }}>
-            <small className="muted">
-              Admin demo (se crea automático):{" "}
-              <strong>admin@valhalla.com</strong> / <strong>admin123</strong>
-              <br />
-              Los clientes los creas desde el panel Admin.
-            </small>
-          </div>
-        </form>
+        <small className="muted" style={{ marginTop: 10 }}>
+          Demo: admin / admin123 — cliente1 / 1234
+        </small>
       </div>
     </div>
   );

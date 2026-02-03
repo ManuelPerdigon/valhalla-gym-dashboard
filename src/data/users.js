@@ -1,19 +1,7 @@
 export const users = [
-  {
-    id: 1,
-    role: "admin",
-    name: "Admin",
-    email: "admin@valhalla.com",
-    password: "admin123",
-    clientId: null,
-  },
-  {
-    id: 2,
-    role: "client",
-    name: "Cliente Demo",
-    email: "cliente@valhalla.com",
-    password: "cliente123",
-    // Este clientId debe coincidir con el id del cliente en tu app (localStorage)
-    clientId: null,
-  },
+  { id: "admin", username: "admin", password: "admin123", role: "admin" },
+
+  // Clientes (ejemplos)
+  { id: "c1", username: "cliente1", password: "1234", role: "client" },
+  { id: "c2", username: "cliente2", password: "1234", role: "client" },
 ];

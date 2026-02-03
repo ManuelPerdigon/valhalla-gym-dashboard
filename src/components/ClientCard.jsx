@@ -13,6 +13,11 @@ function ClientCard({
   saveGoalWeight,
   exportClientCSV,
   isClientView = false,
+
+  // ✅ NUEVO (solo admin)
+  clientUsers = [],
+  assignClientToUser = () => {},
+  assignedMap = {},
 }) {
   const [openSection, setOpenSection] = useState(null);
 
@@ -23,8 +28,8 @@ function ClientCard({
   const MAX_WEIGHT = 250;
 
   // ✅ Horario permitido para CLIENTE
-  const ALLOWED_START_HOUR = 6;  // 06:00
-  const ALLOWED_END_HOUR = 23;   // 23:00
+  const ALLOWED_START_HOUR = 6; // 06:00
+  const ALLOWED_END_HOUR = 23; // 23:00
 
   const [routine, setRoutine] = useState("");
   const [goal, setGoal] = useState(client.goalWeight || "");
@@ -112,7 +117,6 @@ function ClientCard({
   const isWithinAllowedTime = () => {
     const now = new Date();
     const hour = now.getHours(); // hora local del dispositivo
-
     // Permitimos desde 06:00 hasta 23:59
     return hour >= ALLOWED_START_HOUR && hour <= ALLOWED_END_HOUR;
   };
@@ -130,7 +134,6 @@ function ClientCard({
 
   const saveEdit = (e) => {
     e.stopPropagation();
-
     if (!editingProgress.date || editingProgress.weight === "") return;
 
     const rounded = toOneDecimal(editingProgress.weight);
@@ -140,9 +143,7 @@ function ClientCard({
     if (weightErr) return;
 
     const updated = client.progress.map((p, i) =>
-      i === editingIndex
-        ? { ...editingProgress, weight: rounded }
-        : p
+      i === editingIndex ? { ...editingProgress, weight: rounded } : p
     );
 
     addProgress(client.id, updated);
@@ -190,7 +191,6 @@ function ClientCard({
       return;
     }
 
-    // ✅ Validación peso
     const weightErr = validateWeight(rounded);
     if (weightErr) {
       setProgressError(weightErr);
@@ -285,6 +285,51 @@ function ClientCard({
         )}
       </div>
 
+      {/* ✅ ASIGNACIÓN (solo admin) */}
+      {!isClientView && (
+        <div className="client-section" style={{ marginTop: 10 }}>
+          <small className="muted">Asignar usuario cliente</small>
+
+          <div className="row">
+            <select
+              value={client.assignedUserId || ""}
+              onChange={(e) => assignClientToUser(client.id, e.target.value)}
+              style={{
+                background: "#0f0f0f",
+                border: "1px solid #333",
+                color: "#fff",
+                padding: "10px",
+                borderRadius: "10px",
+                minWidth: 220,
+              }}
+            >
+              <option value="">— Sin asignar —</option>
+
+              {clientUsers.map((u) => {
+                const assignedToName = assignedMap[u.id]; // si existe, está ocupado
+                const isTakenByOther =
+                  !!assignedToName && client.assignedUserId !== u.id;
+
+                return (
+                  <option key={u.id} value={u.id} disabled={isTakenByOther}>
+                    {u.username}
+                    {assignedToName ? ` (asignado a: ${assignedToName})` : ""}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          {!!client.assignedUserId && (
+            <small className="muted">
+              Asignado a:{" "}
+              {clientUsers.find((u) => u.id === client.assignedUserId)
+                ?.username || client.assignedUserId}
+            </small>
+          )}
+        </div>
+      )}
+
       {/* ===== BARRA ===== */}
       <div className="progress-container">
         <div
@@ -320,10 +365,7 @@ function ClientCard({
         )}
 
         {client.progress.length >= 2 && (
-          <WeightChart
-            progress={client.progress}
-            goalWeight={client.goalWeight}
-          />
+          <WeightChart progress={client.progress} goalWeight={client.goalWeight} />
         )}
       </div>
 
