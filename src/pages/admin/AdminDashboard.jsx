@@ -1,115 +1,142 @@
-import { useEffect, useRef, useState } from "react";
-import "../../App.css";
+import { useEffect, useMemo, useState } from "react";
 import ClientForm from "../../components/ClientForm";
 import ClientCard from "../../components/ClientCard";
 import Dashboard from "../../components/Dashboard";
 import { useAuth } from "../../context/AuthContext";
 
 export default function AdminDashboard() {
-  const { logout, users } = useAuth();
+  const { API_URL, authHeaders, logout } = useAuth();
 
   const [clients, setClients] = useState([]);
+  const [users, setUsers] = useState([]);
   const [name, setName] = useState("");
-  const isFirstLoad = useRef(true);
 
-  // Solo usuarios tipo cliente para asignación
-  const clientUsers = users.filter((u) => u.role === "client");
+  const clientUsers = useMemo(
+    () => (users || []).filter((u) => u.role === "client"),
+    [users]
+  );
 
-  /* ===== PERSISTENCIA ===== */
-  useEffect(() => {
-    const stored = localStorage.getItem("clients");
-    if (stored) setClients(JSON.parse(stored));
-  }, []);
-
-  useEffect(() => {
-    if (isFirstLoad.current) {
-      isFirstLoad.current = false;
-      return;
-    }
-    localStorage.setItem("clients", JSON.stringify(clients));
+  const assignedMap = useMemo(() => {
+    return clients.reduce((acc, c) => {
+      if (c.assignedUserId) acc[c.assignedUserId] = c.name;
+      return acc;
+    }, {});
   }, [clients]);
 
-  /* ===== CLIENTES ===== */
-  const addClient = () => {
-    if (!name.trim()) return;
-
-    setClients((prev) => [
-      ...prev,
-      {
-        id: Date.now(),
-        name: name.trim(),
-        active: true,
-        routine: "",
-        goalWeight: "",
-        progress: [],
-        nutrition: {
-          calories: "",
-          protein: "",
-          carbs: "",
-          fats: "",
-          notes: "",
-          adherence: [],
-        },
-
-        // ✅ NUEVO: asignación
-        assignedUserId: "",
-      },
+  const fetchAll = async () => {
+    const [clientsRes, usersRes] = await Promise.all([
+      fetch(`${API_URL}/clients`, { headers: { ...authHeaders } }),
+      fetch(`${API_URL}/users`, { headers: { ...authHeaders } }),
     ]);
 
-    setName("");
+    const cData = await clientsRes.json();
+    const uData = await usersRes.json();
+
+    if (!clientsRes.ok) throw new Error(cData?.error || "Error clients");
+    if (!usersRes.ok) throw new Error(uData?.error || "Error users");
+
+    setClients(cData);
+    setUsers(uData);
   };
 
-  const deleteClient = (id) =>
-    setClients((prev) => prev.filter((c) => c.id !== id));
+  useEffect(() => {
+    fetchAll().catch((e) => {
+      console.error(e);
+      alert("Error cargando datos. Revisa que el backend esté corriendo.");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const toggleStatus = (id) =>
-    setClients((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, active: !c.active } : c))
-    );
+  /* ===== Helpers API ===== */
 
-  const saveRoutine = (id, routine) =>
-    setClients((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, routine } : c))
-    );
+  const patchClient = async (id, patch) => {
+    const res = await fetch(`${API_URL}/clients/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify(patch),
+    });
 
-  const addProgress = (id, newProgressArray) =>
-    setClients((prev) =>
-      prev.map((c) =>
-        c.id === id ? { ...c, progress: newProgressArray } : c
-      )
-    );
+    const data = await res.json();
 
-  const saveGoalWeight = (id, goalWeight) =>
-    setClients((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, goalWeight } : c))
-    );
+    if (!res.ok) {
+      throw new Error(data?.error || "Error al actualizar");
+    }
 
-  const saveNutrition = (id, nutritionData) =>
-    setClients((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? {
-              ...c,
-              nutrition: { ...c.nutrition, ...nutritionData },
-            }
-          : c
-      )
-    );
+    setClients((prev) => prev.map((c) => (c.id === id ? data : c)));
+  };
 
-  const addNutritionLog = (id, log) =>
-    setClients((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? {
-              ...c,
-              nutrition: {
-                ...c.nutrition,
-                adherence: [...c.nutrition.adherence, log],
-              },
-            }
-          : c
-      )
-    );
+  // ✅ FIX: addClient con mensaje claro de error (alert + console)
+  const addClient = async () => {
+    try {
+      if (!name.trim()) return;
+
+      const res = await fetch(`${API_URL}/clients`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        console.error("POST /clients error:", data);
+        alert(data?.error || `Error al crear (status ${res.status})`);
+        return;
+      }
+
+      setClients((prev) => [data, ...prev]);
+      setName("");
+    } catch (e) {
+      console.error(e);
+      alert("Error de red (backend apagado o API_URL incorrecto).");
+    }
+  };
+
+  // En este MVP no hay DELETE en backend: lo resolvemos con "desactivar"
+  const deleteClient = async (id) => {
+    const ok = confirm("¿Eliminar? (En este MVP se desactiva el cliente)");
+    if (!ok) return;
+    await patchClient(id, { active: 0 });
+  };
+
+  const toggleStatus = async (id) => {
+    const current = clients.find((c) => c.id === id);
+    if (!current) return;
+    await patchClient(id, { active: current.active ? 0 : 1 });
+  };
+
+  const saveRoutine = async (id, routine) => patchClient(id, { routine });
+
+  const addProgress = async (id, newProgressArray) =>
+    patchClient(id, { progress: newProgressArray });
+
+  const saveGoalWeight = async (id, goalWeight) =>
+    patchClient(id, { goalWeight });
+
+  const saveNutrition = async (id, nutritionData) => {
+    const current = clients.find((c) => c.id === id);
+    if (!current) return;
+    await patchClient(id, {
+      nutrition: { ...current.nutrition, ...nutritionData },
+    });
+  };
+
+  const addNutritionLog = async (id, log) => {
+    const current = clients.find((c) => c.id === id);
+    if (!current) return;
+    const adherence = current.nutrition?.adherence || [];
+    await patchClient(id, {
+      nutrition: { ...current.nutrition, adherence: [...adherence, log] },
+    });
+  };
+
+  const assignClientToUser = async (clientId, userId) => {
+    try {
+      await patchClient(clientId, { assignedUserId: userId || "" });
+    } catch (e) {
+      alert(e.message);
+    }
+  };
 
   const exportClientCSV = (id) => {
     const client = clients.find((c) => c.id === id);
@@ -136,41 +163,6 @@ export default function AdminDashboard() {
     link.click();
     URL.revokeObjectURL(url);
   };
-
-  // ✅ NUEVO: asignar cliente a usuario (sin duplicados)
-  const assignClientToUser = (clientId, userId) => {
-    setClients((prev) => {
-      // Si selecciona "sin asignar", lo permitimos siempre
-      if (!userId) {
-        return prev.map((c) =>
-          c.id === clientId ? { ...c, assignedUserId: "" } : c
-        );
-      }
-
-      // ¿Ese userId ya está asignado a otro cliente?
-      const alreadyAssigned = prev.find(
-        (c) => c.assignedUserId === userId && c.id !== clientId
-      );
-
-      if (alreadyAssigned) {
-        alert(
-          `Ese usuario ya está asignado a: ${alreadyAssigned.name}. Primero desasígnalo allá.`
-        );
-        return prev; // no cambia nada
-      }
-
-      // Asignación válida
-      return prev.map((c) =>
-        c.id === clientId ? { ...c, assignedUserId: userId } : c
-      );
-    });
-  };
-
-  // ✅ Mapa: userId -> nombre del cliente asignado (para UI: deshabilitar ocupados)
-  const assignedMap = clients.reduce((acc, c) => {
-    if (c.assignedUserId) acc[c.assignedUserId] = c.name;
-    return acc;
-  }, {});
 
   return (
     <div className="app">

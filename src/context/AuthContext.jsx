@@ -1,41 +1,97 @@
-import { createContext, useContext, useEffect, useState } from "react";
-import { users } from "../data/users";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5050";
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(() => localStorage.getItem("vh_token") || "");
+  const [user, setUser] = useState(() => {
+    const raw = localStorage.getItem("vh_user");
+    return raw ? JSON.parse(raw) : null;
+  });
+  const [loading, setLoading] = useState(false);
 
-  // sesión persistente
+  const isAuthed = !!token && !!user;
+
+  const authHeaders = useMemo(() => {
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }, [token]);
+
+  // Verifica token al cargar (opcional pero recomendado)
   useEffect(() => {
-    const stored = localStorage.getItem("valhalla_session");
-    if (stored) setUser(JSON.parse(stored));
+    const check = async () => {
+      if (!token) return;
+
+      try {
+        const res = await fetch(`${API_URL}/me`, {
+          headers: { ...authHeaders },
+        });
+
+        if (!res.ok) throw new Error("Token inválido");
+        const data = await res.json();
+
+        // Mantener user sincronizado
+        setUser(data.user);
+        localStorage.setItem("vh_user", JSON.stringify(data.user));
+      } catch {
+        // Limpia si token falló
+        logout();
+      }
+    };
+
+    check();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const login = (username, password) => {
-    const found = users.find(
-      (u) => u.username === username && u.password === password
-    );
-    if (!found) return { ok: false, message: "Usuario o contraseña incorrectos." };
+  const login = async (username, password) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
 
-    const session = { id: found.id, username: found.username, role: found.role };
-    setUser(session);
-    localStorage.setItem("valhalla_session", JSON.stringify(session));
-    return { ok: true };
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Login falló");
+
+      setToken(data.token);
+      setUser(data.user);
+
+      localStorage.setItem("vh_token", data.token);
+      localStorage.setItem("vh_user", JSON.stringify(data.user));
+
+      return { ok: true, user: data.user };
+    } catch (e) {
+      return { ok: false, error: e.message || "Error" };
+    } finally {
+      setLoading(false);
+    }
   };
 
   const logout = () => {
+    setToken("");
     setUser(null);
-    localStorage.removeItem("valhalla_session");
+    localStorage.removeItem("vh_token");
+    localStorage.removeItem("vh_user");
   };
 
-  return (
-    <AuthContext.Provider value={{ user, login, logout, users }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  const value = {
+    API_URL,
+    token,
+    user,
+    isAuthed,
+    loading,
+    authHeaders,
+    login,
+    logout,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
-  return useContext(AuthContext);
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth debe usarse dentro de <AuthProvider>");
+  return ctx;
 }
