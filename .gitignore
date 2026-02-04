@@ -50,3 +50,16 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Env
+.env
+server/.env
+valhalla-gym-dashboard/.env
+
+# SQLite
+*.db
+*.db-wal
+*.db-shm
+server/valhalla.db
+server/valhalla.db-wal
+server/valhalla.db-shm
