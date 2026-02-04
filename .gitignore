@@ -1,4 +1,6 @@
-# Logs
+# =====================
+# LOGS
+# =====================
 logs
 *.log
 npm-debug.log*
@@ -7,16 +9,42 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# =====================
+# NODE / VITE
+# =====================
+node_modules/
+**/node_modules/
+dist/
+dist-ssr/
+build/
+.vite/
 *.local
 
-# Editor directories and files
+# =====================
+# ENV (SECRETOS)
+# =====================
+.env
+server/.env
+valhalla-gym-dashboard/.env
+
+# =====================
+# SQLITE (NO SUBIR DB LOCAL)
+# =====================
+*.db
+*.db-wal
+*.db-shm
+server/*.db
+server/*.db-wal
+server/*.db-shm
+
+# =====================
+# EDITOR / OS
+# =====================
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
