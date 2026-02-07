@@ -24,8 +24,7 @@ build/
 # ENV (SECRETOS)
 # =====================
 .env
-server/.env
-valhalla-gym-dashboard/.env
+**/.env
 
 # =====================
 # SQLITE (NO SUBIR DB LOCAL)
@@ -33,9 +32,6 @@ valhalla-gym-dashboard/.env
 *.db
 *.db-wal
 *.db-shm
-server/*.db
-server/*.db-wal
-server/*.db-shm
 
 # =====================
 # EDITOR / OS
@@ -50,16 +46,3 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
-
-# Env
-.env
-server/.env
-valhalla-gym-dashboard/.env
-
-# SQLite
-*.db
-*.db-wal
-*.db-shm
-server/valhalla.db
-server/valhalla.db-wal
-server/valhalla.db-shm
