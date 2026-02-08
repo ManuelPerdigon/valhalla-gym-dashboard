@@ -63,10 +63,40 @@ app.get("/health", (_req, res) => {
 });
 
 /* ======================
-   BOOTSTRAP USERS
+   BOOTSTRAP ADMIN (PROD SAFE)
+   - Crea admin SOLO si no existe
+   - Usa env: ADMIN_USER y ADMIN_PASS
 ====================== */
-function ensureDefaultUsers() {
-  // ✅ En producción NO crear usuarios demo
+function ensureAdminFromEnv() {
+  const adminUser = (process.env.ADMIN_USER || "").trim();
+  const adminPass = process.env.ADMIN_PASS || "";
+
+  if (!adminUser || !adminPass) {
+    console.log("ℹ️ ADMIN_USER/ADMIN_PASS no definidos. (OK si ya tienes admin creado)");
+    return;
+  }
+
+  const exists = db.prepare("SELECT id FROM users WHERE username = ?").get(adminUser);
+  if (exists) {
+    console.log(`ℹ️ Admin ya existe: ${adminUser}`);
+    return;
+  }
+
+  const hash = bcrypt.hashSync(adminPass, 10);
+
+  // Usamos id=admin para que sea estable
+  db.prepare(
+    "INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)"
+  ).run("admin", adminUser, hash, "admin");
+
+  console.log(`✅ Admin creado desde ENV: ${adminUser}`);
+}
+ensureAdminFromEnv();
+
+/* ======================
+   (Solo local) Usuarios demo
+====================== */
+function ensureDefaultUsersLocal() {
   const isProd = process.env.NODE_ENV === "production";
   if (isProd) return;
 
@@ -85,9 +115,9 @@ function ensureDefaultUsers() {
   insert.run("cliente1", "cliente1", c1Hash, "client");
   insert.run("cliente2", "cliente2", c2Hash, "client");
 
-  console.log("✅ Usuarios demo creados (solo local): admin/admin123, cliente1/1234, cliente2/1234");
+  console.log("✅ Usuarios demo (solo local): admin/admin123, cliente1/1234, cliente2/1234");
 }
-ensureDefaultUsers();
+ensureDefaultUsersLocal();
 
 /* ======================
    AUTH
@@ -197,7 +227,6 @@ app.patch("/clients/:id", authRequired, (req, res) => {
 
     const patch = req.body || {};
 
-    // Cliente solo puede tocar progress/nutrition
     if (req.user.role !== "admin") {
       const allowedKeys = ["progress", "nutrition"];
       for (const key of Object.keys(patch)) {
@@ -212,7 +241,6 @@ app.patch("/clients/:id", authRequired, (req, res) => {
       next.progress = JSON.stringify(next.progress);
     }
 
-    // ✅ Asignación robusta (solo admin)
     if (req.user.role === "admin" && "assignedUserId" in patch) {
       let newUserId = patch.assignedUserId;
 
@@ -223,7 +251,6 @@ app.patch("/clients/:id", authRequired, (req, res) => {
         const u = db.prepare("SELECT id FROM users WHERE id = ?").get(newUserId);
         if (!u) return res.status(400).json({ error: "Ese usuario no existe." });
 
-        // 1 usuario = 1 cliente
         const taken = db
           .prepare("SELECT id, name FROM clients WHERE assignedUserId = ? AND id <> ?")
           .get(newUserId, id);
@@ -270,7 +297,7 @@ app.patch("/clients/:id", authRequired, (req, res) => {
 });
 
 /* ======================
-   CLIENTS DELETE (solo admin) ✅ BORRADO REAL
+   CLIENTS DELETE (solo admin)
 ====================== */
 app.delete("/clients/:id", authRequired, adminOnly, (req, res) => {
   try {
