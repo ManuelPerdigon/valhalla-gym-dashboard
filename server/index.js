@@ -9,9 +9,7 @@ const app = express();
 const PORT = process.env.PORT || 5050;
 
 /* ======================
-   CORS + JSON
-   - Local: 5173/5174
-   - Producción: agrega tu URL de Vercel en CORS_ORIGINS
+   CORS + JSON (PROD)
 ====================== */
 const allowed = [
   "http://localhost:5173",
@@ -24,7 +22,7 @@ const allowed = [
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin) return cb(null, true); // curl/postman
+      if (!origin) return cb(null, true);
       if (allowed.includes(origin)) return cb(null, true);
       return cb(new Error("CORS bloqueado: " + origin));
     },
@@ -68,6 +66,10 @@ app.get("/health", (_req, res) => {
    BOOTSTRAP USERS
 ====================== */
 function ensureDefaultUsers() {
+  // ✅ En producción NO crear usuarios demo
+  const isProd = process.env.NODE_ENV === "production";
+  if (isProd) return;
+
   const exists = db.prepare("SELECT COUNT(*) as n FROM users").get();
   if (exists?.n > 0) return;
 
@@ -83,7 +85,7 @@ function ensureDefaultUsers() {
   insert.run("cliente1", "cliente1", c1Hash, "client");
   insert.run("cliente2", "cliente2", c2Hash, "client");
 
-  console.log("✅ Usuarios creados: admin/admin123, cliente1/1234, cliente2/1234");
+  console.log("✅ Usuarios demo creados (solo local): admin/admin123, cliente1/1234, cliente2/1234");
 }
 ensureDefaultUsers();
 
