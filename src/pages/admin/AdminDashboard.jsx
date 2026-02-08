@@ -65,7 +65,6 @@ export default function AdminDashboard() {
     setClients((prev) => prev.map((c) => (c.id === id ? data : c)));
   };
 
-  // ✅ FIX: addClient con mensaje claro de error (alert + console)
   const addClient = async () => {
     try {
       if (!name.trim()) return;
@@ -92,11 +91,29 @@ export default function AdminDashboard() {
     }
   };
 
-  // En este MVP no hay DELETE en backend: lo resolvemos con "desactivar"
+  // ✅ BORRADO REAL en backend
   const deleteClient = async (id) => {
-    const ok = confirm("¿Eliminar? (En este MVP se desactiva el cliente)");
+    const ok = confirm("¿Eliminar cliente PERMANENTEMENTE? (No se puede deshacer)");
     if (!ok) return;
-    await patchClient(id, { active: 0 });
+
+    try {
+      const res = await fetch(`${API_URL}/clients/${id}`, {
+        method: "DELETE",
+        headers: { ...authHeaders },
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        alert(data?.error || `Error eliminando (status ${res.status})`);
+        return;
+      }
+
+      setClients((prev) => prev.filter((c) => c.id !== id));
+    } catch (e) {
+      console.error(e);
+      alert("Error de red (backend apagado o API_URL incorrecto).");
+    }
   };
 
   const toggleStatus = async (id) => {

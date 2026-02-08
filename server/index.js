@@ -10,12 +10,21 @@ const PORT = process.env.PORT || 5050;
 
 /* ======================
    CORS + JSON
+   - Local: 5173/5174
+   - Producción: agrega tu URL de Vercel en CORS_ORIGINS
 ====================== */
+const allowed = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  ...(process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean)
+    : []),
+];
+
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin) return cb(null, true);
-      const allowed = ["http://localhost:5173", "http://localhost:5174"];
+      if (!origin) return cb(null, true); // curl/postman
       if (allowed.includes(origin)) return cb(null, true);
       return cb(new Error("CORS bloqueado: " + origin));
     },
@@ -45,8 +54,12 @@ function rowToClient(row) {
 }
 
 /* ======================
-   HEALTH
+   ROOT + HEALTH
 ====================== */
+app.get("/", (_req, res) => {
+  res.json({ ok: true, service: "Valhalla Gym API", health: "/health" });
+});
+
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
@@ -184,9 +197,9 @@ app.patch("/clients/:id", authRequired, (req, res) => {
 
     // Cliente solo puede tocar progress/nutrition
     if (req.user.role !== "admin") {
-      const allowed = ["progress", "nutrition"];
+      const allowedKeys = ["progress", "nutrition"];
       for (const key of Object.keys(patch)) {
-        if (!allowed.includes(key)) return res.status(403).json({ error: "No permitido" });
+        if (!allowedKeys.includes(key)) return res.status(403).json({ error: "No permitido" });
       }
     }
 
@@ -201,21 +214,23 @@ app.patch("/clients/:id", authRequired, (req, res) => {
     if (req.user.role === "admin" && "assignedUserId" in patch) {
       let newUserId = patch.assignedUserId;
 
-      // Normaliza: "" -> null
       if (newUserId === "") newUserId = null;
       if (typeof newUserId === "string") newUserId = newUserId.trim();
 
-      // Si viene algo, validar que exista
       if (newUserId) {
         const u = db.prepare("SELECT id FROM users WHERE id = ?").get(newUserId);
         if (!u) return res.status(400).json({ error: "Ese usuario no existe." });
 
-        // Opcional: 1 usuario = 1 cliente (tu regla actual)
+        // 1 usuario = 1 cliente
         const taken = db
           .prepare("SELECT id, name FROM clients WHERE assignedUserId = ? AND id <> ?")
           .get(newUserId, id);
 
-        if (taken) return res.status(409).json({ error: `Ese usuario ya está asignado al cliente: ${taken.name}` });
+        if (taken) {
+          return res
+            .status(409)
+            .json({ error: `Ese usuario ya está asignado al cliente: ${taken.name}` });
+        }
       }
 
       next.assignedUserId = newUserId || null;
@@ -253,8 +268,27 @@ app.patch("/clients/:id", authRequired, (req, res) => {
 });
 
 /* ======================
+   CLIENTS DELETE (solo admin) ✅ BORRADO REAL
+====================== */
+app.delete("/clients/:id", authRequired, adminOnly, (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: "ID inválido" });
+
+    const current = db.prepare("SELECT id FROM clients WHERE id = ?").get(id);
+    if (!current) return res.status(404).json({ error: "No encontrado" });
+
+    db.prepare("DELETE FROM clients WHERE id = ?").run(id);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("DELETE /clients ERROR:", e);
+    res.status(500).json({ error: "Error eliminando cliente" });
+  }
+});
+
+/* ======================
    START
 ====================== */
-app.listen(PORT, () => {
-  console.log(`✅ API corriendo en http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ API corriendo en puerto ${PORT}`);
 });
