@@ -9,7 +9,7 @@ const app = express();
 const PORT = process.env.PORT || 5050;
 
 /* ======================
-   CORS + JSON (PROD)
+   CORS + JSON (LOCAL + PROD)
 ====================== */
 const allowed = [
   "http://localhost:5173",
@@ -22,7 +22,7 @@ const allowed = [
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin) return cb(null, true);
+      if (!origin) return cb(null, true); // curl/postman
       if (allowed.includes(origin)) return cb(null, true);
       return cb(new Error("CORS bloqueado: " + origin));
     },
@@ -63,50 +63,36 @@ app.get("/health", (_req, res) => {
 });
 
 /* ======================
-   BOOTSTRAP ADMIN (PROD SAFE)
-   - Crea admin SOLO si no existe
-   - Usa env: ADMIN_USER y ADMIN_PASS
+   BOOTSTRAP USERS
+   - En PROD: crea admin desde ENV si no hay usuarios
+   - En LOCAL: crea demo users si no hay usuarios
 ====================== */
-function ensureAdminFromEnv() {
-  const adminUser = (process.env.ADMIN_USER || "").trim();
-  const adminPass = process.env.ADMIN_PASS || "";
-
-  if (!adminUser || !adminPass) {
-    console.log("ℹ️ ADMIN_USER/ADMIN_PASS no definidos. (OK si ya tienes admin creado)");
-    return;
-  }
-
-  const exists = db.prepare("SELECT id FROM users WHERE username = ?").get(adminUser);
-  if (exists) {
-    console.log(`ℹ️ Admin ya existe: ${adminUser}`);
-    return;
-  }
-
-  const hash = bcrypt.hashSync(adminPass, 10);
-
-  // Usamos id=admin para que sea estable
-  db.prepare(
-    "INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)"
-  ).run("admin", adminUser, hash, "admin");
-
-  console.log(`✅ Admin creado desde ENV: ${adminUser}`);
-}
-ensureAdminFromEnv();
-
-/* ======================
-   (Solo local) Usuarios demo
-====================== */
-function ensureDefaultUsersLocal() {
-  const isProd = process.env.NODE_ENV === "production";
-  if (isProd) return;
-
+function ensureUsers() {
   const exists = db.prepare("SELECT COUNT(*) as n FROM users").get();
   if (exists?.n > 0) return;
+
+  const isProd = process.env.NODE_ENV === "production";
 
   const insert = db.prepare(
     "INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)"
   );
 
+  if (isProd) {
+    const adminUser = (process.env.ADMIN_USER || "").trim();
+    const adminPass = process.env.ADMIN_PASS || "";
+
+    if (!adminUser || !adminPass) {
+      console.log("⚠️ PROD: faltan ADMIN_USER o ADMIN_PASS. No se crea admin.");
+      return;
+    }
+
+    const adminHash = bcrypt.hashSync(adminPass, 10);
+    insert.run("admin", adminUser, adminHash, "admin");
+    console.log(`✅ Admin PROD creado: ${adminUser}`);
+    return;
+  }
+
+  // LOCAL demo
   const adminHash = bcrypt.hashSync("admin123", 10);
   const c1Hash = bcrypt.hashSync("1234", 10);
   const c2Hash = bcrypt.hashSync("1234", 10);
@@ -115,9 +101,12 @@ function ensureDefaultUsersLocal() {
   insert.run("cliente1", "cliente1", c1Hash, "client");
   insert.run("cliente2", "cliente2", c2Hash, "client");
 
-  console.log("✅ Usuarios demo (solo local): admin/admin123, cliente1/1234, cliente2/1234");
+  console.log(
+    "✅ Usuarios demo creados (solo local): admin/admin123, cliente1/1234, cliente2/1234"
+  );
 }
-ensureDefaultUsersLocal();
+
+ensureUsers();
 
 /* ======================
    AUTH
@@ -227,6 +216,7 @@ app.patch("/clients/:id", authRequired, (req, res) => {
 
     const patch = req.body || {};
 
+    // Cliente solo puede tocar progress/nutrition
     if (req.user.role !== "admin") {
       const allowedKeys = ["progress", "nutrition"];
       for (const key of Object.keys(patch)) {
@@ -241,6 +231,7 @@ app.patch("/clients/:id", authRequired, (req, res) => {
       next.progress = JSON.stringify(next.progress);
     }
 
+    // ✅ Asignación robusta (solo admin)
     if (req.user.role === "admin" && "assignedUserId" in patch) {
       let newUserId = patch.assignedUserId;
 
@@ -251,6 +242,7 @@ app.patch("/clients/:id", authRequired, (req, res) => {
         const u = db.prepare("SELECT id FROM users WHERE id = ?").get(newUserId);
         if (!u) return res.status(400).json({ error: "Ese usuario no existe." });
 
+        // 1 usuario = 1 cliente
         const taken = db
           .prepare("SELECT id, name FROM clients WHERE assignedUserId = ? AND id <> ?")
           .get(newUserId, id);
@@ -297,7 +289,7 @@ app.patch("/clients/:id", authRequired, (req, res) => {
 });
 
 /* ======================
-   CLIENTS DELETE (solo admin)
+   CLIENTS DELETE (solo admin) ✅ BORRADO REAL
 ====================== */
 app.delete("/clients/:id", authRequired, adminOnly, (req, res) => {
   try {
@@ -314,45 +306,7 @@ app.delete("/clients/:id", authRequired, adminOnly, (req, res) => {
     res.status(500).json({ error: "Error eliminando cliente" });
   }
 });
-// ✅ Reset admin (solo para emergencias / setup inicial)
-app.post("/admin/reset", (req, res) => {
-  try {
-    const key = req.headers["x-admin-reset-key"];
-    if (!key || key !== process.env.ADMIN_RESET_KEY) {
-      return res.status(401).json({ error: "No autorizado" });
-    }
 
-    // Borra todo y recrea users demo
-    db.exec(`
-      DELETE FROM clients;
-      DELETE FROM users;
-    `);
-
-    const insert = db.prepare(
-      "INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)"
-    );
-
-    const adminHash = bcrypt.hashSync("admin123", 10);
-    const c1Hash = bcrypt.hashSync("1234", 10);
-    const c2Hash = bcrypt.hashSync("1234", 10);
-
-    insert.run("admin", "admin", adminHash, "admin");
-    insert.run("cliente1", "cliente1", c1Hash, "client");
-    insert.run("cliente2", "cliente2", c2Hash, "client");
-
-    return res.json({
-      ok: true,
-      users: [
-        { username: "admin", password: "admin123" },
-        { username: "cliente1", password: "1234" },
-        { username: "cliente2", password: "1234" },
-      ],
-    });
-  } catch (e) {
-    console.error("RESET ERROR:", e);
-    return res.status(500).json({ error: "Error reseteando" });
-  }
-});
 /* ======================
    START
 ====================== */
