@@ -314,7 +314,45 @@ app.delete("/clients/:id", authRequired, adminOnly, (req, res) => {
     res.status(500).json({ error: "Error eliminando cliente" });
   }
 });
+// ✅ Reset admin (solo para emergencias / setup inicial)
+app.post("/admin/reset", (req, res) => {
+  try {
+    const key = req.headers["x-admin-reset-key"];
+    if (!key || key !== process.env.ADMIN_RESET_KEY) {
+      return res.status(401).json({ error: "No autorizado" });
+    }
 
+    // Borra todo y recrea users demo
+    db.exec(`
+      DELETE FROM clients;
+      DELETE FROM users;
+    `);
+
+    const insert = db.prepare(
+      "INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)"
+    );
+
+    const adminHash = bcrypt.hashSync("admin123", 10);
+    const c1Hash = bcrypt.hashSync("1234", 10);
+    const c2Hash = bcrypt.hashSync("1234", 10);
+
+    insert.run("admin", "admin", adminHash, "admin");
+    insert.run("cliente1", "cliente1", c1Hash, "client");
+    insert.run("cliente2", "cliente2", c2Hash, "client");
+
+    return res.json({
+      ok: true,
+      users: [
+        { username: "admin", password: "admin123" },
+        { username: "cliente1", password: "1234" },
+        { username: "cliente2", password: "1234" },
+      ],
+    });
+  } catch (e) {
+    console.error("RESET ERROR:", e);
+    return res.status(500).json({ error: "Error reseteando" });
+  }
+});
 /* ======================
    START
 ====================== */
