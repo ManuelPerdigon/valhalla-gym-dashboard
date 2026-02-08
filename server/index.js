@@ -9,7 +9,13 @@ const app = express();
 const PORT = process.env.PORT || 5050;
 
 /* ======================
-   CORS + JSON (PROD OK)
+   BODY PARSERS (SIEMPRE PRIMERO)
+====================== */
+app.use(express.json({ limit: "1mb", type: ["application/json", "*/json"] }));
+app.use(express.urlencoded({ extended: true }));
+
+/* ======================
+   CORS (PROD OK)
 ====================== */
 const allowed = new Set(
   [
@@ -24,14 +30,8 @@ const allowed = new Set(
 app.use(
   cors({
     origin: (origin, cb) => {
-      // Permitir requests sin Origin (curl, health checks, etc)
-      if (!origin) return cb(null, true);
-
-      // Permitir si está en la lista
+      if (!origin) return cb(null, true); // curl/healthchecks
       if (allowed.has(origin)) return cb(null, true);
-
-      // En vez de tirar error (que a veces termina en 500), respondemos "no permitido"
-      // (CORS lo bloqueará en el navegador)
       return cb(null, false);
     },
     credentials: true,
@@ -40,7 +40,7 @@ app.use(
   })
 );
 
-// ✅ Preflight para todas las rutas
+// Preflight
 app.options("*", cors());
 
 /* ======================
@@ -75,8 +75,6 @@ app.get("/health", (_req, res) => {
 
 /* ======================
    BOOTSTRAP USERS
-   - En PROD: crea admin desde ENV si no hay usuarios
-   - En LOCAL: crea demo users si no hay usuarios
 ====================== */
 function ensureUsers() {
   const exists = db.prepare("SELECT COUNT(*) as n FROM users").get();
@@ -116,15 +114,34 @@ function ensureUsers() {
     "✅ Usuarios demo creados (solo local): admin/admin123, cliente1/1234, cliente2/1234"
   );
 }
-
 ensureUsers();
+
+/* ======================
+   FALLBACK BODY PARSER (SOLO PARA LOGIN)
+   - Si req.body llega vacío en Render, leemos el stream a mano
+====================== */
+function ensureBody(req, res, next) {
+  if (req.body && Object.keys(req.body).length > 0) return next();
+
+  let raw = "";
+  req.on("data", (chunk) => (raw += chunk));
+  req.on("end", () => {
+    try {
+      req.body = raw ? JSON.parse(raw) : {};
+    } catch {
+      req.body = {};
+    }
+    next();
+  });
+}
 
 /* ======================
    AUTH
 ====================== */
-app.post("/auth/login", (req, res) => {
+app.post("/auth/login", ensureBody, (req, res) => {
   try {
     const { username, password } = req.body || {};
+
     if (!username || !password) {
       return res.status(400).json({ error: "Faltan credenciales" });
     }
@@ -227,7 +244,6 @@ app.patch("/clients/:id", authRequired, (req, res) => {
 
     const patch = req.body || {};
 
-    // Cliente solo puede tocar progress/nutrition
     if (req.user.role !== "admin") {
       const allowedKeys = ["progress", "nutrition"];
       for (const key of Object.keys(patch)) {
@@ -242,7 +258,6 @@ app.patch("/clients/:id", authRequired, (req, res) => {
       next.progress = JSON.stringify(next.progress);
     }
 
-    // ✅ Asignación robusta (solo admin)
     if (req.user.role === "admin" && "assignedUserId" in patch) {
       let newUserId = patch.assignedUserId;
 
@@ -253,7 +268,6 @@ app.patch("/clients/:id", authRequired, (req, res) => {
         const u = db.prepare("SELECT id FROM users WHERE id = ?").get(newUserId);
         if (!u) return res.status(400).json({ error: "Ese usuario no existe." });
 
-        // 1 usuario = 1 cliente
         const taken = db
           .prepare("SELECT id, name FROM clients WHERE assignedUserId = ? AND id <> ?")
           .get(newUserId, id);
@@ -300,7 +314,7 @@ app.patch("/clients/:id", authRequired, (req, res) => {
 });
 
 /* ======================
-   CLIENTS DELETE (solo admin) ✅ BORRADO REAL
+   CLIENTS DELETE (solo admin)
 ====================== */
 app.delete("/clients/:id", authRequired, adminOnly, (req, res) => {
   try {
