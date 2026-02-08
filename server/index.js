@@ -9,28 +9,39 @@ const app = express();
 const PORT = process.env.PORT || 5050;
 
 /* ======================
-   CORS + JSON (LOCAL + PROD)
+   CORS + JSON (PROD OK)
 ====================== */
-const allowed = [
-  "http://localhost:5173",
-  "http://localhost:5174",
-  ...(process.env.CORS_ORIGINS
-    ? process.env.CORS_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean)
-    : []),
-];
+const allowed = new Set(
+  [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    ...(process.env.CORS_ORIGINS
+      ? process.env.CORS_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean)
+      : []),
+  ].filter(Boolean)
+);
 
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin) return cb(null, true); // curl/postman
-      if (allowed.includes(origin)) return cb(null, true);
-      return cb(new Error("CORS bloqueado: " + origin));
+      // Permitir requests sin Origin (curl, health checks, etc)
+      if (!origin) return cb(null, true);
+
+      // Permitir si está en la lista
+      if (allowed.has(origin)) return cb(null, true);
+
+      // En vez de tirar error (que a veces termina en 500), respondemos "no permitido"
+      // (CORS lo bloqueará en el navegador)
+      return cb(null, false);
     },
     credentials: true,
+    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-app.use(express.json());
+// ✅ Preflight para todas las rutas
+app.options("*", cors());
 
 /* ======================
    HELPERS
