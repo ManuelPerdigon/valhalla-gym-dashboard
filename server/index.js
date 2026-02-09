@@ -9,10 +9,23 @@ const app = express();
 const PORT = process.env.PORT || 5050;
 
 /* ======================
-   BODY PARSERS (SIEMPRE PRIMERO)
+   CAPTURAR RAW BODY (A PRUEBA DE RENDER)
 ====================== */
-app.use(express.json({ limit: "1mb", type: ["application/json", "*/json"] }));
-app.use(express.urlencoded({ extended: true }));
+app.use(
+  express.json({
+    limit: "1mb",
+    type: ["application/json", "*/json"],
+    verify: (req, _res, buf) => {
+      req.rawBody = buf?.toString("utf8") || "";
+    },
+  })
+);
+
+app.use(
+  express.urlencoded({
+    extended: true,
+  })
+);
 
 /* ======================
    CORS (PROD OK)
@@ -40,7 +53,6 @@ app.use(
   })
 );
 
-// Preflight
 app.options("*", cors());
 
 /* ======================
@@ -66,7 +78,12 @@ function rowToClient(row) {
    ROOT + HEALTH
 ====================== */
 app.get("/", (_req, res) => {
-  res.json({ ok: true, service: "Valhalla Gym API", health: "/health" });
+  res.json({
+    ok: true,
+    service: "Valhalla Gym API",
+    health: "/health",
+    build: "index-v3-rawbody",
+  });
 });
 
 app.get("/health", (_req, res) => {
@@ -117,33 +134,32 @@ function ensureUsers() {
 ensureUsers();
 
 /* ======================
-   FALLBACK BODY PARSER (SOLO PARA LOGIN)
-   - Si req.body llega vacío en Render, leemos el stream a mano
-====================== */
-function ensureBody(req, res, next) {
-  if (req.body && Object.keys(req.body).length > 0) return next();
-
-  let raw = "";
-  req.on("data", (chunk) => (raw += chunk));
-  req.on("end", () => {
-    try {
-      req.body = raw ? JSON.parse(raw) : {};
-    } catch {
-      req.body = {};
-    }
-    next();
-  });
-}
-
-/* ======================
    AUTH
 ====================== */
-app.post("/auth/login", ensureBody, (req, res) => {
+app.post("/auth/login", (req, res) => {
   try {
-    const { username, password } = req.body || {};
+    // 1) normal
+    let { username, password } = req.body || {};
 
+    // 2) fallback: parse raw body si vino vacío
+    if ((!username || !password) && req.rawBody) {
+      const maybe = parseJSONSafe(req.rawBody, null);
+      if (maybe && typeof maybe === "object") {
+        username = maybe.username;
+        password = maybe.password;
+      }
+    }
+
+    // 3) aún nada -> error (incluimos info útil SIN revelar contraseñas)
     if (!username || !password) {
-      return res.status(400).json({ error: "Faltan credenciales" });
+      return res.status(400).json({
+        error: "Faltan credenciales",
+        debug: {
+          contentType: req.headers["content-type"] || null,
+          rawLen: (req.rawBody || "").length,
+          bodyKeys: req.body ? Object.keys(req.body) : null,
+        },
+      });
     }
 
     const user = db
