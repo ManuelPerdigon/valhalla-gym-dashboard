@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import bcrypt from "bcryptjs";
+import crypto from "node:crypto";
 import db from "./db.js";
 import { authRequired, adminOnly, signToken } from "./auth.js";
 
@@ -82,7 +83,7 @@ app.get("/", (_req, res) => {
     ok: true,
     service: "Valhalla Gym API",
     health: "/health",
-    build: "index-v3-rawbody",
+    build: "index-v3-rawbody+users-post",
   });
 });
 
@@ -104,11 +105,11 @@ function ensureUsers() {
   );
 
   if (isProd) {
-    const adminUser = (process.env.ADMIN_USER || "").trim();
+    const adminUser = (process.env.ADMIN_USER || "").trim() || "admin";
     const adminPass = process.env.ADMIN_PASS || "";
 
-    if (!adminUser || !adminPass) {
-      console.log("⚠️ PROD: faltan ADMIN_USER o ADMIN_PASS. No se crea admin.");
+    if (!adminPass) {
+      console.log("⚠️ PROD: falta ADMIN_PASS. No se crea admin.");
       return;
     }
 
@@ -203,6 +204,37 @@ app.get("/users", authRequired, adminOnly, (_req, res) => {
     .prepare("SELECT id, username, role FROM users ORDER BY username ASC")
     .all();
   res.json(users);
+});
+
+/* ======================
+   USERS CREATE (solo admin) ✅
+   Esto es lo que te faltaba para poder asignar y logear como cliente en PROD
+====================== */
+app.post("/users", authRequired, adminOnly, (req, res) => {
+  try {
+    const { username, password, role } = req.body || {};
+
+    const u = (username || "").trim();
+    const p = (password || "").trim();
+    const r = (role || "client").trim();
+
+    if (!u || !p) return res.status(400).json({ error: "username y password requeridos" });
+    if (!["admin", "client"].includes(r)) return res.status(400).json({ error: "role inválido" });
+
+    const exists = db.prepare("SELECT id FROM users WHERE username = ?").get(u);
+    if (exists) return res.status(409).json({ error: "Ese username ya existe" });
+
+    const id = crypto.randomUUID();
+    const hash = bcrypt.hashSync(p, 10);
+
+    db.prepare("INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)")
+      .run(id, u, hash, r);
+
+    res.json({ ok: true, user: { id, username: u, role: r } });
+  } catch (e) {
+    console.error("POST /users ERROR:", e);
+    res.status(500).json({ error: "Error creando usuario" });
+  }
 });
 
 /* ======================
