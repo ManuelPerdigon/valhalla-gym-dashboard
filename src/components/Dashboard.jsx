@@ -1,3 +1,4 @@
+// src/components/Dashboard.jsx
 import MiniClientWeight from "./MiniClientWeight";
 
 function Dashboard({ clients }) {
@@ -16,22 +17,19 @@ function Dashboard({ clients }) {
     .filter(Boolean);
 
   const avgWeight = allWeights.length
-    ? Math.round(
-        allWeights.reduce((a, b) => a + b, 0) / allWeights.length
-      )
+    ? Math.round(allWeights.reduce((a, b) => a + b, 0) / allWeights.length)
     : null;
 
   /* ===== NUTRICIÓN GLOBAL ===== */
-  const nutritionLogs = clients.flatMap(
-    (c) => c.nutrition?.adherence || []
-  );
+  const nutritionLogs = clients.flatMap((c) => c.nutrition?.adherence || []);
+
+  // ✅ FIX:
+  // - Si completed === false -> NO cuenta
+  // - Si completed es undefined / true -> SÍ cuenta
+  const completedCount = nutritionLogs.filter((d) => d?.completed !== false).length;
 
   const nutritionGlobalPercent = nutritionLogs.length
-    ? Math.round(
-        (nutritionLogs.filter((d) => d.completed).length /
-          nutritionLogs.length) *
-          100
-      )
+    ? Math.round((completedCount / nutritionLogs.length) * 100)
     : 0;
 
   const nutritionColor =
@@ -64,8 +62,7 @@ function Dashboard({ clients }) {
       </div>
 
       <small>
-        🟢 Activos: {activeClients} | 🔴 Inactivos:{" "}
-        {inactiveClients}
+        🟢 Activos: {activeClients} | 🔴 Inactivos: {inactiveClients}
       </small>
 
       {/* ===== PESO ===== */}
@@ -93,7 +90,12 @@ function Dashboard({ clients }) {
         />
       </div>
 
-      <small>Adherencia global: {nutritionGlobalPercent}%</small>
+      <small>
+        Adherencia global: {nutritionGlobalPercent}%{" "}
+        <span style={{ opacity: 0.7 }}>
+          ({completedCount}/{nutritionLogs.length})
+        </span>
+      </small>
     </div>
   );
 }
