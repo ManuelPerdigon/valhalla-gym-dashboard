@@ -42,7 +42,7 @@ export default function AdminApp() {
 
   // Toast
   const [toast, setToast] = useState(null);
-  const showToast = (t) => setToast({ type: "success", ...t });
+  const showToast = (t) => setToast(t); // ✅ no forzar success
 
   // Confirm delete modal
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -73,7 +73,9 @@ export default function AdminApp() {
       usersOk: res.ok,
       usersStatus: res.status,
       usersCount: list.length,
-      usersSample: list[0] ? { id: list[0].id, username: list[0].username, role: list[0].role } : null,
+      usersSample: list[0]
+        ? { id: list[0].id, username: list[0].username, role: list[0].role }
+        : null,
     }));
 
     if (!res.ok) {
@@ -285,11 +287,38 @@ export default function AdminApp() {
     setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
   };
 
+  const exportClientCSV = (id) => {
+    const client = clients.find((c) => c.id === id);
+    if (!client) return;
+
+    const rows = [
+      ["Nombre", client.name],
+      ["Activo", client.active ? "Sí" : "No"],
+      ["Objetivo peso", client.goalWeight || ""],
+      ["Rutina", client.routine || ""],
+      [],
+      ["Fecha", "Peso", "Reps"],
+      ...(client.progress || []).map((p) => [p.date, p.weight, p.reps]),
+    ];
+
+    const csv = rows.map((r) => r.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${client.name}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    showToast({ type: "success", title: "CSV exportado", message: client.name });
+  };
+
   /* ===== CREAR USER + ASIGNAR ===== */
   const createClientUser = async () => {
     setUErr("");
 
-    const displayName = uName.trim();
+    const displayName = uName.trim(); // (si luego quieres guardarlo, lo metemos al back)
     const username = uUsername.trim();
     const pass = uPassword;
 
@@ -352,10 +381,10 @@ export default function AdminApp() {
     setClients((prev) => prev.map((c) => (c.id === clientId ? res.data : c)));
   };
 
-  const visibleClients = useMemo(() => {       
+  const visibleClients = useMemo(() => {
     const s = search.trim().toLowerCase();
-    let list = [...clients];                                                    
-             
+    let list = [...clients];
+
     if (s) list = list.filter((c) => (c.name || "").toLowerCase().includes(s));
     if (statusFilter === "active") list = list.filter((c) => !!c.active);
     if (statusFilter === "inactive") list = list.filter((c) => !c.active);
@@ -408,10 +437,9 @@ export default function AdminApp() {
 
         <small className="muted">API: {API_URL}</small>
 
-        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8 }}>
-          <div>
-            <strong>DEBUG</strong>
-          </div>
+        {/* DEBUG */}
+        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.85 }}>
+          <div><strong>DEBUG</strong></div>
           <div>
             /users → ok: <strong>{String(debug.usersOk)}</strong> · status:{" "}
             <strong>{debug.usersStatus ?? "-"}</strong> · count:{" "}
@@ -571,12 +599,12 @@ export default function AdminApp() {
               busy={busy}
               toggleStatus={toggleStatus}
               deleteClient={() => requestDeleteClient(client)}
-              saveRoutine={() => {}}
+              saveRoutine={saveRoutine}
               addProgress={addProgress}
               saveNutrition={saveNutrition}
               addNutritionLog={addNutritionLog}
               saveGoalWeight={saveGoalWeight}
-              exportClientCSV={() => {}}
+              exportClientCSV={exportClientCSV}
             />
           ))
         )}
