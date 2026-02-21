@@ -1,9 +1,13 @@
 // src/components/ClientCard.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDebouncedEffect } from "../hooks/useDebouncedEffect";
+import { useToast } from "./ToastProvider";
 
 export default function ClientCard({
   client,
+  users = [],
+  busy = false,
+  onAssignUser,
   toggleStatus,
   deleteClient,
   saveRoutine,
@@ -13,6 +17,8 @@ export default function ClientCard({
   saveGoalWeight,
   exportClientCSV,
 }) {
+  const { showToast } = useToast();
+
   const [openSection, setOpenSection] = useState(null);
 
   // ===== Drafts para autosave =====
@@ -69,8 +75,10 @@ export default function ClientCard({
         setSaveState((p) => ({ ...p, routine: "saving" }));
         await saveRoutine(client.id, draftRoutine);
         setSaveState((p) => ({ ...p, routine: "saved" }));
+        showToast("Rutina guardada ✅");
       } catch {
         setSaveState((p) => ({ ...p, routine: "error" }));
+        showToast("No se pudo guardar la rutina ❌", "error");
       }
     },
     [draftRoutine, saveState.routine, client.id],
@@ -85,8 +93,10 @@ export default function ClientCard({
         setSaveState((p) => ({ ...p, goal: "saving" }));
         await saveGoalWeight(client.id, draftGoal);
         setSaveState((p) => ({ ...p, goal: "saved" }));
+        showToast("Meta actualizada ✅");
       } catch {
         setSaveState((p) => ({ ...p, goal: "error" }));
+        showToast("No se pudo guardar la meta ❌", "error");
       }
     },
     [draftGoal, saveState.goal, client.id],
@@ -101,8 +111,10 @@ export default function ClientCard({
         setSaveState((p) => ({ ...p, nutrition: "saving" }));
         await saveNutrition(client.id, draftNutrition);
         setSaveState((p) => ({ ...p, nutrition: "saved" }));
+        showToast("Nutrición guardada ✅");
       } catch {
         setSaveState((p) => ({ ...p, nutrition: "error" }));
+        showToast("No se pudo guardar nutrición ❌", "error");
       }
     },
     [draftNutrition, saveState.nutrition, client.id],
@@ -115,10 +127,17 @@ export default function ClientCard({
   };
 
   // ===== Progreso (agregar registro) =====
-  const [progressForm, setProgressForm] = useState({ date: "", weight: "", reps: "" });
+  const [progressForm, setProgressForm] = useState({
+    date: "",
+    weight: "",
+    reps: "",
+  });
 
   const submitProgress = () => {
-    if (!progressForm.date || !progressForm.weight) return;
+    if (!progressForm.date || !progressForm.weight) {
+      showToast("Falta fecha y peso para agregar progreso", "warning");
+      return;
+    }
 
     const next = Array.isArray(client.progress) ? [...client.progress] : [];
     next.unshift({
@@ -129,16 +148,28 @@ export default function ClientCard({
 
     addProgress(client.id, next);
     setProgressForm({ date: "", weight: "", reps: "" });
+    showToast("Progreso agregado ✅");
   };
 
   // ===== Adherencia nutrición (log simple) =====
   const [adhText, setAdhText] = useState("");
   const submitAdherence = () => {
     const t = adhText.trim();
-    if (!t) return;
-    const log = { date: new Date().toISOString(), note: t };
+    if (!t) {
+      showToast("Escribe algo para la bitácora", "warning");
+      return;
+    }
+
+    // ✅ completed true (tu fix)
+    const log = {
+      date: new Date().toISOString(),
+      note: t,
+      completed: true,
+    };
+
     addNutritionLog(client.id, log);
     setAdhText("");
+    showToast("Bitácora agregada ✅");
   };
 
   const isOpen = (key) => openSection === key;
@@ -158,7 +189,9 @@ export default function ClientCard({
       padding: "4px 10px",
       borderRadius: 999,
       border: "1px solid #333",
-      background: client.active ? "rgba(0,255,153,0.08)" : "rgba(255,85,85,0.08)",
+      background: client.active
+        ? "rgba(0,255,153,0.08)"
+        : "rgba(255,85,85,0.08)",
       color: client.active ? "#00ff99" : "#ff5555",
     }),
     [client.active]
@@ -176,26 +209,91 @@ export default function ClientCard({
       }}
     >
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 10,
+        }}
+      >
+        <div style={{ minWidth: 280 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <h3 style={{ margin: 0 }}>{client.name}</h3>
-            <span style={headerPillStyle}>{client.active ? "Activo" : "Inactivo"}</span>
+            <span style={headerPillStyle}>
+              {client.active ? "Activo" : "Inactivo"}
+            </span>
           </div>
 
           <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
             ID: {client.id} · Progreso: {(client.progress || []).length} registros
           </div>
+
+          {/* ✅ ASIGNAR USUARIO */}
+          <div style={{ marginTop: 10 }}>
+            <small style={{ opacity: 0.75, display: "block", marginBottom: 6 }}>
+              Asignar a usuario (cliente):
+            </small>
+
+            <select
+              value={client.assignedUserId || ""}
+              disabled={busy}
+              onChange={(e) => {
+                if (!onAssignUser) return;
+                const newUserId = e.target.value; // "" => sin asignar
+                onAssignUser(client.id, newUserId);
+              }}
+              style={{
+                width: "100%",
+                background: "#0f0f0f",
+                border: "1px solid #333",
+                color: "#fff",
+                padding: "10px",
+                borderRadius: "10px",
+              }}
+            >
+              <option value="">— Sin asignar —</option>
+              {users
+                .slice()
+                .sort((a, b) => (a.username || "").localeCompare(b.username || ""))
+                .map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.username}
+                  </option>
+                ))}
+            </select>
+
+            <small style={{ opacity: 0.6, display: "block", marginTop: 6 }}>
+              {client.assignedUserId
+                ? `Asignado a: ${users.find((u) => u.id === client.assignedUserId)?.username || "Usuario"}`
+                : "No asignado"}
+            </small>
+          </div>
         </div>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+          }}
+        >
           <button type="button" onClick={() => exportClientCSV(client.id)}>
             Exportar CSV
           </button>
+
           <button type="button" onClick={() => toggleStatus(client.id)}>
             {client.active ? "Desactivar" : "Activar"}
           </button>
-          <button type="button" onClick={() => deleteClient(client.id)}>
+
+          <button
+            type="button"
+            onClick={() => {
+              deleteClient(client.id);
+              showToast("Cliente eliminado 🗑️", "warning");
+            }}
+          >
             🗑️ Eliminar
           </button>
         </div>

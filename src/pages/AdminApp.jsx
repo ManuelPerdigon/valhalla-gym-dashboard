@@ -1,3 +1,4 @@
+// src/pages/AdminApp.jsx
 import { useEffect, useMemo, useState } from "react";
 import ClientForm from "../components/ClientForm";
 import ClientCard from "../components/ClientCard";
@@ -14,8 +15,8 @@ export default function AdminApp() {
 
   // UI filtros clientes
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all"); // all | active | inactive
-  const [sortBy, setSortBy] = useState("recent"); // recent | old | az | za
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("recent");
 
   /* ===== USERS ===== */
   const [users, setUsers] = useState([]);
@@ -27,6 +28,17 @@ export default function AdminApp() {
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+
+  // Debug visible (para saber por qué está vacío)
+  const [debug, setDebug] = useState({
+    usersOk: null,
+    usersStatus: null,
+    usersCount: 0,
+    usersSample: null,
+    clientsOk: null,
+    clientsStatus: null,
+    clientsCount: 0,
+  });
 
   // Toast
   const [toast, setToast] = useState(null);
@@ -45,23 +57,63 @@ export default function AdminApp() {
         "Content-Type": "application/json",
       },
     });
+
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, status: res.status, data };
   }
 
+  const refreshUsers = async () => {
+    const res = await apiFetch("/users", { method: "GET" });
+
+    const list = Array.isArray(res.data) ? res.data : [];
+    setUsers(list);
+
+    setDebug((d) => ({
+      ...d,
+      usersOk: res.ok,
+      usersStatus: res.status,
+      usersCount: list.length,
+      usersSample: list[0] ? { id: list[0].id, username: list[0].username, role: list[0].role } : null,
+    }));
+
+    if (!res.ok) {
+      showToast({
+        type: "error",
+        title: "No se pudo cargar usuarios",
+        message: res.data?.error || `Error ${res.status}`,
+      });
+    }
+
+    return list;
+  };
+
+  const refreshClients = async () => {
+    const res = await apiFetch("/clients", { method: "GET" });
+
+    const list = Array.isArray(res.data) ? res.data : [];
+    setClients(list);
+
+    setDebug((d) => ({
+      ...d,
+      clientsOk: res.ok,
+      clientsStatus: res.status,
+      clientsCount: list.length,
+    }));
+
+    if (!res.ok) {
+      showToast({
+        type: "error",
+        title: "No se pudo cargar clientes",
+        message: res.data?.error || `Error ${res.status}`,
+      });
+    }
+
+    return list;
+  };
+
   async function loadAll() {
     setLoading(true);
-    const [uRes, cRes] = await Promise.all([
-      apiFetch("/users", { method: "GET" }),
-      apiFetch("/clients", { method: "GET" }),
-    ]);
-
-    if (uRes.ok && Array.isArray(uRes.data)) setUsers(uRes.data);
-    else showToast({ type: "error", title: "No cargó usuarios", message: uRes.data?.error || "Error" });
-
-    if (cRes.ok && Array.isArray(cRes.data)) setClients(cRes.data);
-    else showToast({ type: "error", title: "No cargó clientes", message: cRes.data?.error || "Error" });
-
+    await Promise.all([refreshUsers(), refreshClients()]);
     setLoading(false);
   }
 
@@ -135,11 +187,6 @@ export default function AdminApp() {
     }
 
     setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
-    showToast({
-      type: "success",
-      title: "Estado actualizado",
-      message: `${res.data.name}: ${res.data.active ? "Activo" : "Inactivo"}`,
-    });
   };
 
   const saveRoutine = async (id, routine) => {
@@ -154,8 +201,8 @@ export default function AdminApp() {
       showToast({ type: "error", title: "No se pudo guardar rutina", message: res.data?.error || "Error" });
       return;
     }
+
     setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
-    showToast({ type: "success", title: "Rutina guardada", message: res.data.name });
   };
 
   const addProgress = async (id, newProgressArray) => {
@@ -170,8 +217,8 @@ export default function AdminApp() {
       showToast({ type: "error", title: "No se pudo guardar progreso", message: res.data?.error || "Error" });
       return;
     }
+
     setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
-    showToast({ type: "success", title: "Progreso guardado", message: res.data.name });
   };
 
   const saveGoalWeight = async (id, goalWeight) => {
@@ -186,8 +233,8 @@ export default function AdminApp() {
       showToast({ type: "error", title: "No se pudo guardar meta", message: res.data?.error || "Error" });
       return;
     }
+
     setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
-    showToast({ type: "success", title: "Meta guardada", message: res.data.name });
   };
 
   const saveNutrition = async (id, nutritionData) => {
@@ -210,8 +257,8 @@ export default function AdminApp() {
       showToast({ type: "error", title: "No se pudo guardar nutrición", message: res.data?.error || "Error" });
       return;
     }
+
     setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
-    showToast({ type: "success", title: "Nutrición guardada", message: res.data.name });
   };
 
   const addNutritionLog = async (id, log) => {
@@ -234,48 +281,16 @@ export default function AdminApp() {
       showToast({ type: "error", title: "No se pudo guardar log", message: res.data?.error || "Error" });
       return;
     }
+
     setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
-    showToast({ type: "success", title: "Log guardado", message: res.data.name });
   };
 
-  const exportClientCSV = (id) => {
-    const client = clients.find((c) => c.id === id);
-    if (!client) return;
-
-    const rows = [
-      ["Nombre", client.name],
-      ["Activo", client.active ? "Sí" : "No"],
-      ["Objetivo peso", client.goalWeight || ""],
-      ["Rutina", client.routine || ""],
-      [],
-      ["Fecha", "Peso", "Reps"],
-      ...(client.progress || []).map((p) => [p.date, p.weight, p.reps]),
-    ];
-
-    const csv = rows.map((r) => r.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${client.name}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-
-    showToast({ type: "success", title: "CSV exportado", message: client.name });
-  };
-
-  /* ===== USERS ===== */
-  const refreshUsers = async () => {
-    const res = await apiFetch("/users", { method: "GET" });
-    if (res.ok && Array.isArray(res.data)) setUsers(res.data);
-  };
-
+  /* ===== CREAR USER + ASIGNAR ===== */
   const createClientUser = async () => {
     setUErr("");
 
     const displayName = uName.trim();
-    const username = uUsername.trim(); // login real
+    const username = uUsername.trim();
     const pass = uPassword;
 
     if (!displayName) return setUErr("Falta nombre del usuario.");
@@ -285,7 +300,6 @@ export default function AdminApp() {
 
     setBusy(true);
 
-    // 1) crear usuario client
     const r = await apiFetch("/users", {
       method: "POST",
       body: JSON.stringify({ username, password: pass, role: "client" }),
@@ -297,7 +311,6 @@ export default function AdminApp() {
       return;
     }
 
-    // 2) asignarlo al cliente
     const patch = await apiFetch(`/clients/${Number(uClientId)}`, {
       method: "PATCH",
       body: JSON.stringify({ assignedUserId: r.data.user.id }),
@@ -318,19 +331,32 @@ export default function AdminApp() {
     setUPassword("");
     setUClientId("");
 
-    showToast({
-      type: "success",
-      title: "Usuario creado y asignado",
-      message: `${username} → ${patch.data.name}`,
-    });
+    showToast({ type: "success", title: "Usuario creado y asignado", message: `${username} → ${patch.data.name}` });
   };
 
-  const visibleClients = useMemo(() => {
+  const assignClientUser = async (clientId, userIdOrNull) => {
+    setBusy(true);
+
+    const res = await apiFetch(`/clients/${clientId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ assignedUserId: userIdOrNull || null }),
+    });
+
+    setBusy(false);
+
+    if (!res.ok) {
+      showToast({ type: "error", title: "No se pudo asignar", message: res.data?.error || "Error" });
+      return;
+    }
+
+    setClients((prev) => prev.map((c) => (c.id === clientId ? res.data : c)));
+  };
+
+  const visibleClients = useMemo(() => {       
     const s = search.trim().toLowerCase();
-    let list = [...clients];
-
+    let list = [...clients];                                                    
+             
     if (s) list = list.filter((c) => (c.name || "").toLowerCase().includes(s));
-
     if (statusFilter === "active") list = list.filter((c) => !!c.active);
     if (statusFilter === "inactive") list = list.filter((c) => !c.active);
 
@@ -343,7 +369,6 @@ export default function AdminApp() {
   }, [clients, search, statusFilter, sortBy]);
 
   const clientUsers = users.filter((u) => u.role === "client");
-  const adminUsers = users.filter((u) => u.role === "admin");
 
   return (
     <div className="app">
@@ -382,6 +407,26 @@ export default function AdminApp() {
         </div>
 
         <small className="muted">API: {API_URL}</small>
+
+        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8 }}>
+          <div>
+            <strong>DEBUG</strong>
+          </div>
+          <div>
+            /users → ok: <strong>{String(debug.usersOk)}</strong> · status:{" "}
+            <strong>{debug.usersStatus ?? "-"}</strong> · count:{" "}
+            <strong>{debug.usersCount}</strong> · sample:{" "}
+            <strong>{debug.usersSample ? JSON.stringify(debug.usersSample) : "—"}</strong>
+          </div>
+          <div>
+            /clients → ok: <strong>{String(debug.clientsOk)}</strong> · status:{" "}
+            <strong>{debug.clientsStatus ?? "-"}</strong> · count:{" "}
+            <strong>{debug.clientsCount}</strong>
+          </div>
+          <div>
+            users(role=client) → <strong>{clientUsers.length}</strong>
+          </div>
+        </div>
       </div>
 
       {/* ===== USUARIOS ===== */}
@@ -441,34 +486,10 @@ export default function AdminApp() {
           </div>
 
           {uErr && <small style={{ color: "#ff5555" }}>{uErr}</small>}
-
-          <small className="muted" style={{ marginTop: 10 }}>
-            Tip: crea el <strong>cliente</strong> primero, luego crea el usuario y asigna.
-          </small>
-        </div>
-
-        <div className="client-section">
-          <h3>Usuarios cliente ({clientUsers.length})</h3>
-          {clientUsers.length === 0 ? (
-            <small className="muted">Aún no hay usuarios cliente.</small>
-          ) : (
-            <ul className="progress-list">
-              {clientUsers.map((u) => (
-                <li key={u.id}>
-                  <strong>{u.username}</strong> — <small className="muted">{u.role}</small>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div className="client-section">
-          <h3>Admins ({adminUsers.length})</h3>
-          <small className="muted">Admin principal (API).</small>
         </div>
       </div>
 
-      {/* ===== TU APP ACTUAL ===== */}
+      {/* ===== DASHBOARD ===== */}
       <Dashboard clients={clients} />
 
       {/* Controles lista clientes */}
@@ -545,14 +566,17 @@ export default function AdminApp() {
             <ClientCard
               key={client.id}
               client={client}
+              users={clientUsers}
+              onAssignUser={assignClientUser}
+              busy={busy}
               toggleStatus={toggleStatus}
               deleteClient={() => requestDeleteClient(client)}
-              saveRoutine={saveRoutine}
+              saveRoutine={() => {}}
               addProgress={addProgress}
               saveNutrition={saveNutrition}
               addNutritionLog={addNutritionLog}
               saveGoalWeight={saveGoalWeight}
-              exportClientCSV={exportClientCSV}
+              exportClientCSV={() => {}}
             />
           ))
         )}
