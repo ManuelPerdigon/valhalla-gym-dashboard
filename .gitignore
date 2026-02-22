@@ -24,7 +24,13 @@ build/
 # ENV (SECRETOS)
 # =====================
 .env
+.env.*
 **/.env
+**/.env.*
+server/.env
+
+# 👉 PERMITIR SOLO ESTE
+!.env.production
 
 # =====================
 # SQLITE (NO SUBIR DB LOCAL)
@@ -46,7 +52,3 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
-.env
-.env.*
-server/.env
-echo '!/.env.production' >> .gitignore
