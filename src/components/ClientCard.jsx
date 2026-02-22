@@ -5,9 +5,8 @@ import { useToast } from "./ToastProvider";
 
 export default function ClientCard({
   client,
-  users = [],
-  busy = false,
-  onAssignUser,
+
+  // acciones
   toggleStatus,
   deleteClient,
   saveRoutine,
@@ -16,6 +15,11 @@ export default function ClientCard({
   addNutritionLog,
   saveGoalWeight,
   exportClientCSV,
+
+  // ✅ NUEVO: asignación
+  users = [], // lista de users role=client desde AdminApp
+  onAssignUser, // (clientId, userIdOrNull) => Promise
+  busy = false, // para deshabilitar UI mientras guarda
 }) {
   const { showToast } = useToast();
 
@@ -36,14 +40,21 @@ export default function ClientCard({
   // Evitar autosave en primer render
   const didMount = useRef(false);
 
+  // ===== Asignación UI =====
+  const [assignValue, setAssignValue] = useState(
+    client.assignedUserId ? String(client.assignedUserId) : ""
+  );
+
   // Sincroniza drafts cuando cambie el cliente (id)
   useEffect(() => {
     setDraftRoutine(client.routine || "");
     setDraftGoal(client.goalWeight || "");
     setDraftNutrition(client.nutrition || {});
     setSaveState({ routine: "idle", goal: "idle", nutrition: "idle" });
+
+    setAssignValue(client.assignedUserId ? String(client.assignedUserId) : "");
     setOpenSection(null);
-  }, [client.id]);
+  }, [client.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const renderSaveBadge = (state) => {
     const map = {
@@ -127,11 +138,7 @@ export default function ClientCard({
   };
 
   // ===== Progreso (agregar registro) =====
-  const [progressForm, setProgressForm] = useState({
-    date: "",
-    weight: "",
-    reps: "",
-  });
+  const [progressForm, setProgressForm] = useState({ date: "", weight: "", reps: "" });
 
   const submitProgress = () => {
     if (!progressForm.date || !progressForm.weight) {
@@ -160,12 +167,8 @@ export default function ClientCard({
       return;
     }
 
-    // ✅ completed true (tu fix)
-    const log = {
-      date: new Date().toISOString(),
-      note: t,
-      completed: true,
-    };
+    // ✅ completed para dashboard
+    const log = { date: new Date().toISOString(), note: t, completed: true };
 
     addNutritionLog(client.id, log);
     setAdhText("");
@@ -189,13 +192,43 @@ export default function ClientCard({
       padding: "4px 10px",
       borderRadius: 999,
       border: "1px solid #333",
-      background: client.active
-        ? "rgba(0,255,153,0.08)"
-        : "rgba(255,85,85,0.08)",
+      background: client.active ? "rgba(0,255,153,0.08)" : "rgba(255,85,85,0.08)",
       color: client.active ? "#00ff99" : "#ff5555",
     }),
     [client.active]
   );
+
+  // ===== Helpers asignación =====
+  const assignedUser = useMemo(() => {
+    if (!client.assignedUserId) return null;
+    return users.find((u) => String(u.id) === String(client.assignedUserId)) || null;
+  }, [client.assignedUserId, users]);
+
+  // (Opcional) bloquear usuarios que ya están asignados a otro cliente
+  // Si quieres que se puedan reasignar libremente, quita esta lógica y usa users tal cual.
+  const availableUsers = useMemo(() => {
+    // si no viene info suficiente, solo devuelve users
+    return users;
+  }, [users]);
+
+  const handleAssignChange = async (e) => {
+    const val = e.target.value; // "" | userId
+    setAssignValue(val);
+
+    if (!onAssignUser) {
+      showToast("Falta onAssignUser en ClientCard (prop).", "error");
+      return;
+    }
+
+    const nextUserId = val ? val : null;
+
+    try {
+      await onAssignUser(client.id, nextUserId);
+      showToast(nextUserId ? "Usuario asignado ✅" : "Asignación removida ✅");
+    } catch {
+      showToast("No se pudo asignar usuario ❌", "error");
+    }
+  };
 
   return (
     <li
@@ -209,90 +242,61 @@ export default function ClientCard({
       }}
     >
       {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: 10,
-        }}
-      >
-        <div style={{ minWidth: 280 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <h3 style={{ margin: 0 }}>{client.name}</h3>
-            <span style={headerPillStyle}>
-              {client.active ? "Activo" : "Inactivo"}
-            </span>
+            <span style={headerPillStyle}>{client.active ? "Activo" : "Inactivo"}</span>
+
+            {/* ✅ Asignación */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 6, flexWrap: "wrap" }}>
+              <small style={{ opacity: 0.75 }}>Asignado:</small>
+              <strong style={{ fontSize: 12 }}>
+                {assignedUser ? assignedUser.username : "— Sin asignar —"}
+              </strong>
+
+              <select
+                value={assignValue}
+                onChange={handleAssignChange}
+                disabled={busy}
+                style={{
+                  background: "#0f0f0f",
+                  border: "1px solid #333",
+                  color: "#fff",
+                  padding: "8px 10px",
+                  borderRadius: "10px",
+                  minWidth: 220,
+                }}
+              >
+                <option value="">— Sin asignar —</option>
+                {availableUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.username}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
             ID: {client.id} · Progreso: {(client.progress || []).length} registros
           </div>
-
-          {/* ✅ ASIGNAR USUARIO */}
-          <div style={{ marginTop: 10 }}>
-            <small style={{ opacity: 0.75, display: "block", marginBottom: 6 }}>
-              Asignar a usuario (cliente):
-            </small>
-
-            <select
-              value={client.assignedUserId || ""}
-              disabled={busy}
-              onChange={(e) => {
-                if (!onAssignUser) return;
-                const newUserId = e.target.value; // "" => sin asignar
-                onAssignUser(client.id, newUserId);
-              }}
-              style={{
-                width: "100%",
-                background: "#0f0f0f",
-                border: "1px solid #333",
-                color: "#fff",
-                padding: "10px",
-                borderRadius: "10px",
-              }}
-            >
-              <option value="">— Sin asignar —</option>
-              {users
-                .slice()
-                .sort((a, b) => (a.username || "").localeCompare(b.username || ""))
-                .map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.username}
-                  </option>
-                ))}
-            </select>
-
-            <small style={{ opacity: 0.6, display: "block", marginTop: 6 }}>
-              {client.assignedUserId
-                ? `Asignado a: ${users.find((u) => u.id === client.assignedUserId)?.username || "Usuario"}`
-                : "No asignado"}
-            </small>
-          </div>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            flexWrap: "wrap",
-            justifyContent: "flex-end",
-          }}
-        >
-          <button type="button" onClick={() => exportClientCSV(client.id)}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <button type="button" onClick={() => exportClientCSV(client.id)} disabled={busy}>
             Exportar CSV
           </button>
-
-          <button type="button" onClick={() => toggleStatus(client.id)}>
+          <button type="button" onClick={() => toggleStatus(client.id)} disabled={busy}>
             {client.active ? "Desactivar" : "Activar"}
           </button>
-
           <button
             type="button"
             onClick={() => {
               deleteClient(client.id);
               showToast("Cliente eliminado 🗑️", "warning");
             }}
+            disabled={busy}
           >
             🗑️ Eliminar
           </button>
@@ -305,6 +309,7 @@ export default function ClientCard({
           type="button"
           style={sectionBtnStyle(isOpen("routine"))}
           onClick={() => setOpenSection(isOpen("routine") ? null : "routine")}
+          disabled={busy}
         >
           Rutina {renderSaveBadge(saveState.routine)}
         </button>
@@ -313,6 +318,7 @@ export default function ClientCard({
           type="button"
           style={sectionBtnStyle(isOpen("nutrition"))}
           onClick={() => setOpenSection(isOpen("nutrition") ? null : "nutrition")}
+          disabled={busy}
         >
           Nutrición {renderSaveBadge(saveState.nutrition)}
         </button>
@@ -321,6 +327,7 @@ export default function ClientCard({
           type="button"
           style={sectionBtnStyle(isOpen("progress"))}
           onClick={() => setOpenSection(isOpen("progress") ? null : "progress")}
+          disabled={busy}
         >
           Progreso
         </button>
@@ -329,6 +336,7 @@ export default function ClientCard({
           type="button"
           style={sectionBtnStyle(isOpen("goal"))}
           onClick={() => setOpenSection(isOpen("goal") ? null : "goal")}
+          disabled={busy}
         >
           Meta {renderSaveBadge(saveState.goal)}
         </button>
@@ -361,6 +369,7 @@ export default function ClientCard({
                 background: "#0f0f0f",
                 color: "#fff",
               }}
+              disabled={busy}
             />
 
             <small style={{ display: "block", marginTop: 8, opacity: 0.7 }}>
@@ -382,21 +391,25 @@ export default function ClientCard({
                 placeholder="Calorías"
                 value={draftNutrition?.calories || ""}
                 onChange={(e) => setNutField("calories", e.target.value)}
+                disabled={busy}
               />
               <input
                 placeholder="Proteína"
                 value={draftNutrition?.protein || ""}
                 onChange={(e) => setNutField("protein", e.target.value)}
+                disabled={busy}
               />
               <input
                 placeholder="Carbs"
                 value={draftNutrition?.carbs || ""}
                 onChange={(e) => setNutField("carbs", e.target.value)}
+                disabled={busy}
               />
               <input
                 placeholder="Grasas"
                 value={draftNutrition?.fats || ""}
                 onChange={(e) => setNutField("fats", e.target.value)}
+                disabled={busy}
               />
             </div>
 
@@ -414,6 +427,7 @@ export default function ClientCard({
                 background: "#0f0f0f",
                 color: "#fff",
               }}
+              disabled={busy}
             />
 
             <div style={{ marginTop: 10 }}>
@@ -424,8 +438,9 @@ export default function ClientCard({
                   value={adhText}
                   onChange={(e) => setAdhText(e.target.value)}
                   style={{ flex: 1 }}
+                  disabled={busy}
                 />
-                <button type="button" onClick={submitAdherence}>
+                <button type="button" onClick={submitAdherence} disabled={busy}>
                   Agregar
                 </button>
               </div>
@@ -457,21 +472,24 @@ export default function ClientCard({
                 type="date"
                 value={progressForm.date}
                 onChange={(e) => setProgressForm((p) => ({ ...p, date: e.target.value }))}
+                disabled={busy}
               />
               <input
                 placeholder="Peso"
                 value={progressForm.weight}
                 onChange={(e) => setProgressForm((p) => ({ ...p, weight: e.target.value }))}
+                disabled={busy}
               />
               <input
                 placeholder="Reps (opcional)"
                 value={progressForm.reps}
                 onChange={(e) => setProgressForm((p) => ({ ...p, reps: e.target.value }))}
+                disabled={busy}
               />
             </div>
 
             <div style={{ marginTop: 10 }}>
-              <button type="button" onClick={submitProgress}>
+              <button type="button" onClick={submitProgress} disabled={busy}>
                 Agregar progreso
               </button>
             </div>
@@ -515,6 +533,7 @@ export default function ClientCard({
                 background: "#0f0f0f",
                 color: "#fff",
               }}
+              disabled={busy}
             />
 
             <small style={{ display: "block", marginTop: 8, opacity: 0.7 }}>
