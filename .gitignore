@@ -49,3 +49,4 @@ Thumbs.db
 .env
 .env.*
 server/.env
+echo '!/.env.production' >> .gitignore
