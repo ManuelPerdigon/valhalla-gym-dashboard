@@ -8,17 +8,15 @@ import ConfirmModal from "../components/ConfirmModal";
 import { useAuth } from "../context/AuthContext";
 
 export default function AdminApp() {
-  const { user, logout, API_URL, authHeaders, token, isAuthed } = useAuth();
+  const { user, logout, API_URL, token, isAuthed } = useAuth();
 
   const [clients, setClients] = useState([]);
   const [name, setName] = useState("");
 
-  // UI filtros clientes
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState("recent");
 
-  /* ===== USERS ===== */
   const [users, setUsers] = useState([]);
   const [uName, setUName] = useState("");
   const [uUsername, setUUsername] = useState("");
@@ -29,68 +27,73 @@ export default function AdminApp() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  // Debug visible
-  const [debug, setDebug] = useState({
-    usersOk: null,
-    usersStatus: null,
-    usersCount: 0,
-    usersSample: null,
-    clientsOk: null,
-    clientsStatus: null,
-    clientsCount: 0,
-  });
-
-  // Toast
   const [toast, setToast] = useState(null);
   const showToast = (t) => setToast(t);
 
-  // Confirm delete modal
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [toDelete, setToDelete] = useState(null);
 
-  // ✅ FIX REAL: parsea JSON normal y "JSON dentro de string"
-  async function apiFetch(path, options = {}) {
-    const url = `${API_URL}${path}`;
+  // ✅ parse robusto (por si llega texto o JSON)
+  function tryParseMaybeJSON(x) {
+    if (x == null) return x;
 
-    const headers = {
-      ...(options.headers || {}),
-      ...authHeaders,
-    };
+    // si ya es objeto/array, listo
+    if (typeof x === "object") return x;
 
-    // Solo setea Content-Type si NO es FormData
-    const isFormData = options.body instanceof FormData;
-    if (!isFormData) headers["Content-Type"] = "application/json";
+    // si es string, intenta JSON.parse
+    if (typeof x === "string") {
+      const s = x.trim();
+      if (!s) return x;
 
-    const res = await fetch(url, { ...options, headers });
-
-    // lee como texto SIEMPRE
-    const rawText = await res.text().catch(() => "");
-
-    // intenta parsear 1 vez
-    let data = rawText;
-    try {
-      data = rawText ? JSON.parse(rawText) : {};
-    } catch {
-      // si no es JSON, se queda como texto
-      data = rawText;
-    }
-
-    // ✅ si lo que quedó es STRING y parece JSON, parsea 2da vez
-    if (typeof data === "string") {
-      const trimmed = data.trim();
-      if (
-        (trimmed.startsWith("[") && trimmed.endsWith("]")) ||
-        (trimmed.startsWith("{") && trimmed.endsWith("}"))
-      ) {
-        try {
-          data = JSON.parse(trimmed);
-        } catch {
-          // se queda como string
+      // primer parse
+      try {
+        const once = JSON.parse(s);
+        // si volvió a quedar string con JSON adentro, parsea segunda vez
+        if (typeof once === "string") {
+          const t = once.trim();
+          if (
+            (t.startsWith("[") && t.endsWith("]")) ||
+            (t.startsWith("{") && t.endsWith("}"))
+          ) {
+            try {
+              return JSON.parse(t);
+            } catch {
+              return once;
+            }
+          }
         }
+        return once;
+      } catch {
+        return x;
       }
     }
 
-    return { ok: res.ok, status: res.status, data };
+    return x;
+  }
+
+  // ✅ FIX CLAVE:
+  // NO dependas de authHeaders del contexto. Usa el token REAL del localStorage SIEMPRE.
+  async function apiFetch(path, options = {}) {
+    const t = localStorage.getItem("vh_token") || "";
+
+    const headers = {
+      ...(options.headers || {}),
+      ...(t ? { Authorization: `Bearer ${t}` } : {}),
+    };
+
+    const isFormData = options.body instanceof FormData;
+    if (!isFormData) headers["Content-Type"] = "application/json";
+
+    const res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers,
+      cache: "no-store", // evita que Safari te cachee respuestas
+    });
+
+    const rawText = await res.text().catch(() => "");
+    const parsed = tryParseMaybeJSON(rawText);
+
+    return { ok: res.ok, status: res.status, data: parsed, rawText };
   }
 
   const refreshUsers = async () => {
@@ -99,21 +102,13 @@ export default function AdminApp() {
     const list = Array.isArray(res.data) ? res.data : [];
     setUsers(list);
 
-    setDebug((d) => ({
-      ...d,
-      usersOk: res.ok,
-      usersStatus: res.status,
-      usersCount: list.length,
-      usersSample: list[0]
-        ? { id: list[0].id, username: list[0].username, role: list[0].role }
-        : null,
-    }));
-
     if (!res.ok) {
       showToast({
         type: "error",
         title: "No se pudo cargar usuarios",
-        message: res.data?.error || `Error ${res.status}`,
+        message:
+          (res.data && res.data.error) ||
+          `Error ${res.status}. BODY: ${String(res.rawText).slice(0, 120)}`,
       });
     }
 
@@ -126,18 +121,13 @@ export default function AdminApp() {
     const list = Array.isArray(res.data) ? res.data : [];
     setClients(list);
 
-    setDebug((d) => ({
-      ...d,
-      clientsOk: res.ok,
-      clientsStatus: res.status,
-      clientsCount: list.length,
-    }));
-
     if (!res.ok) {
       showToast({
         type: "error",
         title: "No se pudo cargar clientes",
-        message: res.data?.error || `Error ${res.status}`,
+        message:
+          (res.data && res.data.error) ||
+          `Error ${res.status}. BODY: ${String(res.rawText).slice(0, 120)}`,
       });
     }
 
@@ -150,7 +140,7 @@ export default function AdminApp() {
     setLoading(false);
   }
 
-  // ✅ Solo carga cuando ya hay token y eres admin (evita el 401 inicial)
+  // ✅ carga cuando estés logeado como admin
   useEffect(() => {
     if (!isAuthed) return;
     if (user?.role !== "admin") return;
@@ -435,32 +425,17 @@ export default function AdminApp() {
 
         <div className="row" style={{ marginTop: 10 }}>
           <button type="button" onClick={logout} disabled={busy}>
-            Cerrar sesión
+            Salir
           </button>
           <button type="button" onClick={loadAll} disabled={loading || busy}>
             {loading ? "Cargando..." : "Recargar"}
           </button>
         </div>
 
-        <small className="muted">API: {API_URL}</small>
-
-        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.85 }}>
-          <div><strong>DEBUG</strong></div>
-          <div>
-            /users → ok: <strong>{String(debug.usersOk)}</strong> · status:{" "}
-            <strong>{debug.usersStatus ?? "-"}</strong> · count:{" "}
-            <strong>{debug.usersCount}</strong> · sample:{" "}
-            <strong>{debug.usersSample ? JSON.stringify(debug.usersSample) : "—"}</strong>
-          </div>
-          <div>
-            /clients → ok: <strong>{String(debug.clientsOk)}</strong> · status:{" "}
-            <strong>{debug.clientsStatus ?? "-"}</strong> · count:{" "}
-            <strong>{debug.clientsCount}</strong>
-          </div>
-          <div>
-            users(role=client) → <strong>{clientUsers.length}</strong>
-          </div>
-        </div>
+        {/* Debug simple visible */}
+        <small className="muted">
+          API: {API_URL} · users: {users.length} · clientUsers: {clientUsers.length}
+        </small>
       </div>
 
       {/* ===== USUARIOS ===== */}
@@ -471,25 +446,9 @@ export default function AdminApp() {
           <h3 style={{ marginTop: 0 }}>Crear usuario cliente</h3>
 
           <div className="row">
-            <input
-              placeholder="Nombre (display)"
-              value={uName}
-              onChange={(e) => setUName(e.target.value)}
-              disabled={busy}
-            />
-            <input
-              placeholder="Username/login (ej: cliente1)"
-              value={uUsername}
-              onChange={(e) => setUUsername(e.target.value)}
-              disabled={busy}
-            />
-            <input
-              placeholder="Password"
-              type="password"
-              value={uPassword}
-              onChange={(e) => setUPassword(e.target.value)}
-              disabled={busy}
-            />
+            <input placeholder="Nombre (display)" value={uName} onChange={(e) => setUName(e.target.value)} disabled={busy} />
+            <input placeholder="Username/login (ej: cliente1)" value={uUsername} onChange={(e) => setUUsername(e.target.value)} disabled={busy} />
+            <input placeholder="Password" type="password" value={uPassword} onChange={(e) => setUPassword(e.target.value)} disabled={busy} />
 
             <select value={uClientId} onChange={(e) => setUClientId(e.target.value)} disabled={busy}>
               <option value="">Asignar a cliente…</option>
@@ -512,18 +471,11 @@ export default function AdminApp() {
         </div>
       </div>
 
-      {/* ===== DASHBOARD ===== */}
       <Dashboard clients={clients} />
 
-      {/* Controles lista clientes */}
       <div className="client-section">
         <div className="row">
-          <input
-            placeholder="Buscar cliente..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            disabled={busy}
-          />
+          <input placeholder="Buscar cliente..." value={search} onChange={(e) => setSearch(e.target.value)} disabled={busy} />
 
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} disabled={busy}>
             <option value="all">Todos</option>
