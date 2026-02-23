@@ -1,29 +1,17 @@
 import Database from "better-sqlite3";
+import fs from "node:fs";
+import path from "node:path";
 
-const DB_PATH = process.env.DB_PATH || "valhalla.db";
-const db = new Database(DB_PATH);
+const DB_FILE = process.env.DB_FILE || path.join(process.cwd(), "valhalla.db");
 
+// crea carpeta si hace falta (por si DB_FILE apunta a /var/data/valhalla.db)
+const dir = path.dirname(DB_FILE);
+if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+const db = new Database(DB_FILE);
+
+// (Opcional) mejoras de sqlite
 db.pragma("journal_mode = WAL");
-
-db.exec(`
-CREATE TABLE IF NOT EXISTS users (
-  id TEXT PRIMARY KEY,
-  username TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
-  role TEXT NOT NULL CHECK(role IN ('admin','client'))
-);
-
-CREATE TABLE IF NOT EXISTS clients (
-  id INTEGER PRIMARY KEY,
-  name TEXT NOT NULL,
-  active INTEGER NOT NULL DEFAULT 1,
-  routine TEXT DEFAULT '',
-  goalWeight TEXT DEFAULT '',
-  assignedUserId TEXT DEFAULT '',
-  nutrition TEXT NOT NULL DEFAULT '{}',
-  progress TEXT NOT NULL DEFAULT '[]',
-  FOREIGN KEY (assignedUserId) REFERENCES users(id)
-);
-`);
+db.pragma("foreign_keys = ON");
 
 export default db;
