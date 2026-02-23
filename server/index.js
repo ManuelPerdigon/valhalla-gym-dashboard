@@ -90,14 +90,11 @@ app.get("/health", (_req, res) => {
 
 /* ======================
    BOOTSTRAP: ASEGURAR ADMIN SIEMPRE
-   - Si existe admin: actualiza password_hash si ADMIN_PASS existe
-   - Si no existe: lo crea
 ====================== */
 function ensureAdmin() {
   const adminUser = (process.env.ADMIN_USER || "admin").trim() || "admin";
   const adminPass = (process.env.ADMIN_PASS || "").trim();
 
-  // Si no hay ADMIN_PASS, NO podemos asegurar password
   if (!adminPass) {
     console.log("⚠️ Falta ADMIN_PASS, no puedo asegurar admin.");
     return;
@@ -116,7 +113,6 @@ function ensureAdmin() {
     return;
   }
 
-  // Si ya existe, actualiza hash para que SIEMPRE puedas logear con ADMIN_PASS
   db.prepare("UPDATE users SET password_hash=?, role='admin' WHERE id = ?")
     .run(hash, existing.id);
   console.log(`✅ Admin actualizado/asegurado: ${adminUser} (id=${existing.id})`);
