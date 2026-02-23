@@ -10,7 +10,7 @@ const app = express();
 const PORT = process.env.PORT || 5050;
 
 /* ======================
-   CAPTURAR RAW BODY (A PRUEBA DE RENDER)
+   CAPTURAR RAW BODY
 ====================== */
 app.use(
   express.json({
@@ -22,14 +22,10 @@ app.use(
   })
 );
 
-app.use(
-  express.urlencoded({
-    extended: true,
-  })
-);
+app.use(express.urlencoded({ extended: true }));
 
 /* ======================
-   CORS (PROD OK)
+   CORS
 ====================== */
 const allowed = new Set(
   [
@@ -44,7 +40,7 @@ const allowed = new Set(
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin) return cb(null, true); // curl/healthchecks
+      if (!origin) return cb(null, true);
       if (allowed.has(origin)) return cb(null, true);
       return cb(null, false);
     },
@@ -76,15 +72,10 @@ function rowToClient(row) {
 }
 
 /* ======================
-   ROOT + HEALTH
+   ROOT
 ====================== */
 app.get("/", (_req, res) => {
-  res.json({
-    ok: true,
-    service: "Valhalla Gym API",
-    health: "/health",
-    build: "index-v3-rawbody+users-post",
-  });
+  res.json({ ok: true, service: "Valhalla Gym API" });
 });
 
 app.get("/health", (_req, res) => {
@@ -105,21 +96,16 @@ function ensureUsers() {
   );
 
   if (isProd) {
-    const adminUser = (process.env.ADMIN_USER || "").trim() || "admin";
+    const adminUser = process.env.ADMIN_USER || "admin";
     const adminPass = process.env.ADMIN_PASS || "";
 
-    if (!adminPass) {
-      console.log("⚠️ PROD: falta ADMIN_PASS. No se crea admin.");
-      return;
-    }
+    if (!adminPass) return;
 
     const adminHash = bcrypt.hashSync(adminPass, 10);
     insert.run("admin", adminUser, adminHash, "admin");
-    console.log(`✅ Admin PROD creado: ${adminUser}`);
     return;
   }
 
-  // LOCAL demo
   const adminHash = bcrypt.hashSync("admin123", 10);
   const c1Hash = bcrypt.hashSync("1234", 10);
   const c2Hash = bcrypt.hashSync("1234", 10);
@@ -127,41 +113,26 @@ function ensureUsers() {
   insert.run("admin", "admin", adminHash, "admin");
   insert.run("cliente1", "cliente1", c1Hash, "client");
   insert.run("cliente2", "cliente2", c2Hash, "client");
-
-  console.log(
-    "✅ Usuarios demo creados (solo local): admin/admin123, cliente1/1234, cliente2/1234"
-  );
 }
 ensureUsers();
 
 /* ======================
-   AUTH
+   LOGIN
 ====================== */
 app.post("/auth/login", (req, res) => {
   try {
-    // 1) normal
     let { username, password } = req.body || {};
 
-    // 2) fallback: parse raw body si vino vacío
     if ((!username || !password) && req.rawBody) {
       const maybe = parseJSONSafe(req.rawBody, null);
-      if (maybe && typeof maybe === "object") {
+      if (maybe) {
         username = maybe.username;
         password = maybe.password;
       }
     }
 
-    // 3) aún nada -> error (incluimos info útil SIN revelar contraseñas)
-    if (!username || !password) {
-      return res.status(400).json({
-        error: "Faltan credenciales",
-        debug: {
-          contentType: req.headers["content-type"] || null,
-          rawLen: (req.rawBody || "").length,
-          bodyKeys: req.body ? Object.keys(req.body) : null,
-        },
-      });
-    }
+    if (!username || !password)
+      return res.status(400).json({ error: "Faltan credenciales" });
 
     const user = db
       .prepare("SELECT id, username, password_hash, role FROM users WHERE username = ?")
@@ -178,26 +149,13 @@ app.post("/auth/login", (req, res) => {
       token,
       user: { id: user.id, username: user.username, role: user.role },
     });
-  } catch (e) {
-    console.error("LOGIN ERROR:", e);
-    res.status(500).json({ error: "Error interno en login" });
+  } catch {
+    res.status(500).json({ error: "Error interno" });
   }
 });
 
 /* ======================
-   ME
-====================== */
-app.get("/me", authRequired, (req, res) => {
-  const u = db
-    .prepare("SELECT id, username, role FROM users WHERE id = ?")
-    .get(req.user.id);
-
-  if (!u) return res.status(401).json({ error: "Usuario no válido" });
-  res.json({ user: u });
-});
-
-/* ======================
-   USERS (solo admin)
+   USERS
 ====================== */
 app.get("/users", authRequired, adminOnly, (_req, res) => {
   const users = db
@@ -206,128 +164,80 @@ app.get("/users", authRequired, adminOnly, (_req, res) => {
   res.json(users);
 });
 
-/* ======================
-   USERS CREATE (solo admin) ✅
-   Esto es lo que te faltaba para poder asignar y logear como cliente en PROD
-====================== */
 app.post("/users", authRequired, adminOnly, (req, res) => {
   try {
     const { username, password, role } = req.body || {};
 
-    const u = (username || "").trim();
-    const p = (password || "").trim();
-    const r = (role || "client").trim();
+    if (!username || !password)
+      return res.status(400).json({ error: "username y password requeridos" });
 
-    if (!u || !p) return res.status(400).json({ error: "username y password requeridos" });
-    if (!["admin", "client"].includes(r)) return res.status(400).json({ error: "role inválido" });
-
-    const exists = db.prepare("SELECT id FROM users WHERE username = ?").get(u);
+    const exists = db.prepare("SELECT id FROM users WHERE username = ?").get(username);
     if (exists) return res.status(409).json({ error: "Ese username ya existe" });
 
     const id = crypto.randomUUID();
-    const hash = bcrypt.hashSync(p, 10);
+    const hash = bcrypt.hashSync(password, 10);
 
-    db.prepare("INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)")
-      .run(id, u, hash, r);
+    db.prepare(
+      "INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)"
+    ).run(id, username, hash, role || "client");
 
-    res.json({ ok: true, user: { id, username: u, role: r } });
-  } catch (e) {
-    console.error("POST /users ERROR:", e);
+    res.json({ ok: true, user: { id, username, role: role || "client" } });
+  } catch {
     res.status(500).json({ error: "Error creando usuario" });
   }
 });
 
 /* ======================
-   CLIENTS GET
+   CLIENTS GET  🔥 FIX
 ====================== */
 app.get("/clients", authRequired, (req, res) => {
   try {
     const rows = db.prepare("SELECT * FROM clients ORDER BY id DESC").all();
-
-    res.json(rows);
-  } catch (e) {
+    const parsed = rows.map(rowToClient); // 🔥 ESTO ARREGLA TODO
+    res.json(parsed);
+  } catch {
     res.status(500).json({ error: "Error obteniendo clientes" });
   }
 });
 
 /* ======================
-   CLIENTS POST (solo admin)
+   CLIENTS POST
 ====================== */
 app.post("/clients", authRequired, adminOnly, (req, res) => {
-  try {
-    const { name } = req.body || {};
-    if (!name?.trim()) return res.status(400).json({ error: "Nombre requerido" });
+  const { name } = req.body || {};
+  if (!name) return res.status(400).json({ error: "Nombre requerido" });
 
-    const stmt = db.prepare(`
-      INSERT INTO clients (name, active, routine, goalWeight, assignedUserId, nutrition, progress)
-      VALUES (?, 1, '', '', NULL, ?, ?)
-    `);
+  const emptyNutrition = JSON.stringify({ adherence: [] });
+  const emptyProgress = JSON.stringify([]);
 
-    const emptyNutrition = JSON.stringify({ adherence: [] });
-    const emptyProgress = JSON.stringify([]);
+  const info = db.prepare(`
+    INSERT INTO clients (name, active, routine, goalWeight, assignedUserId, nutrition, progress)
+    VALUES (?, 1, '', '', NULL, ?, ?)
+  `).run(name.trim(), emptyNutrition, emptyProgress);
 
-    const info = stmt.run(name.trim(), emptyNutrition, emptyProgress);
-
-    const row = db.prepare("SELECT * FROM clients WHERE id = ?").get(info.lastInsertRowid);
-    res.json(rowToClient(row));
-  } catch (e) {
-    console.error("POST /clients ERROR:", e);
-    res.status(500).json({ error: "Error creando cliente" });
-  }
+  const row = db.prepare("SELECT * FROM clients WHERE id = ?").get(info.lastInsertRowid);
+  res.json(rowToClient(row));
 });
 
 /* ======================
-   CLIENTS PATCH
+   CLIENT PATCH
 ====================== */
 app.patch("/clients/:id", authRequired, (req, res) => {
   try {
     const id = Number(req.params.id);
-    if (!id) return res.status(400).json({ error: "ID inválido" });
-
     const current = db.prepare("SELECT * FROM clients WHERE id = ?").get(id);
     if (!current) return res.status(404).json({ error: "No encontrado" });
 
     const patch = req.body || {};
-
-    if (req.user.role !== "admin") {
-      const allowedKeys = ["progress", "nutrition"];
-      for (const key of Object.keys(patch)) {
-        if (!allowedKeys.includes(key)) return res.status(403).json({ error: "No permitido" });
-      }
-    }
-
     const next = { ...current, ...patch };
 
-    if (typeof next.nutrition === "object") next.nutrition = JSON.stringify(next.nutrition);
-    if (Array.isArray(next.progress) || typeof next.progress === "object") {
+    if (typeof next.nutrition === "object")
+      next.nutrition = JSON.stringify(next.nutrition);
+
+    if (Array.isArray(next.progress) || typeof next.progress === "object")
       next.progress = JSON.stringify(next.progress);
-    }
 
-    if (req.user.role === "admin" && "assignedUserId" in patch) {
-      let newUserId = patch.assignedUserId;
-
-      if (newUserId === "") newUserId = null;
-      if (typeof newUserId === "string") newUserId = newUserId.trim();
-
-      if (newUserId) {
-        const u = db.prepare("SELECT id FROM users WHERE id = ?").get(newUserId);
-        if (!u) return res.status(400).json({ error: "Ese usuario no existe." });
-
-        const taken = db
-          .prepare("SELECT id, name FROM clients WHERE assignedUserId = ? AND id <> ?")
-          .get(newUserId, id);
-
-        if (taken) {
-          return res
-            .status(409)
-            .json({ error: `Ese usuario ya está asignado al cliente: ${taken.name}` });
-        }
-      }
-
-      next.assignedUserId = newUserId || null;
-    }
-
-    const update = db.prepare(`
+    db.prepare(`
       UPDATE clients SET
         name = ?,
         active = ?,
@@ -337,9 +247,7 @@ app.patch("/clients/:id", authRequired, (req, res) => {
         nutrition = ?,
         progress = ?
       WHERE id = ?
-    `);
-
-    update.run(
+    `).run(
       next.name,
       next.active ? 1 : 0,
       next.routine || "",
@@ -352,28 +260,8 @@ app.patch("/clients/:id", authRequired, (req, res) => {
 
     const updated = db.prepare("SELECT * FROM clients WHERE id = ?").get(id);
     res.json(rowToClient(updated));
-  } catch (e) {
-    console.error("PATCH /clients ERROR:", e);
+  } catch {
     res.status(500).json({ error: "Error actualizando cliente" });
-  }
-});
-
-/* ======================
-   CLIENTS DELETE (solo admin)
-====================== */
-app.delete("/clients/:id", authRequired, adminOnly, (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    if (!id) return res.status(400).json({ error: "ID inválido" });
-
-    const current = db.prepare("SELECT id FROM clients WHERE id = ?").get(id);
-    if (!current) return res.status(404).json({ error: "No encontrado" });
-
-    db.prepare("DELETE FROM clients WHERE id = ?").run(id);
-    res.json({ ok: true });
-  } catch (e) {
-    console.error("DELETE /clients ERROR:", e);
-    res.status(500).json({ error: "Error eliminando cliente" });
   }
 });
 
@@ -381,5 +269,5 @@ app.delete("/clients/:id", authRequired, adminOnly, (req, res) => {
    START
 ====================== */
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ API corriendo en puerto ${PORT}`);
+  console.log(`API corriendo en ${PORT}`);
 });
