@@ -10,18 +10,9 @@ const app = express();
 const PORT = process.env.PORT || 5050;
 
 /* ======================
-   CAPTURAR RAW BODY
+   BODY
 ====================== */
-app.use(
-  express.json({
-    limit: "1mb",
-    type: ["application/json", "*/json"],
-    verify: (req, _res, buf) => {
-      req.rawBody = buf?.toString("utf8") || "";
-    },
-  })
-);
-
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 /* ======================
@@ -31,9 +22,7 @@ const allowed = new Set(
   [
     "http://localhost:5173",
     "http://localhost:5174",
-    ...(process.env.CORS_ORIGINS
-      ? process.env.CORS_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean)
-      : []),
+    "https://valhalla-gym-dashboard.vercel.app",
   ].filter(Boolean)
 );
 
@@ -49,8 +38,6 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-
-app.options("*", cors());
 
 /* ======================
    HELPERS
@@ -75,87 +62,50 @@ function rowToClient(row) {
    ROOT
 ====================== */
 app.get("/", (_req, res) => {
-  res.json({ ok: true, service: "Valhalla Gym API" });
-});
-
-app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
 /* ======================
-   BOOTSTRAP USERS
-====================== */
-function ensureUsers() {
-  const exists = db.prepare("SELECT COUNT(*) as n FROM users").get();
-  if (exists?.n > 0) return;
-
-  const isProd = process.env.NODE_ENV === "production";
-
-  const insert = db.prepare(
-    "INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)"
-  );
-
-  if (isProd) {
-    const adminUser = process.env.ADMIN_USER || "admin";
-    const adminPass = process.env.ADMIN_PASS || "";
-
-    if (!adminPass) return;
-
-    const adminHash = bcrypt.hashSync(adminPass, 10);
-    insert.run("admin", adminUser, adminHash, "admin");
-    return;
-  }
-
-  const adminHash = bcrypt.hashSync("admin123", 10);
-  const c1Hash = bcrypt.hashSync("1234", 10);
-  const c2Hash = bcrypt.hashSync("1234", 10);
-
-  insert.run("admin", "admin", adminHash, "admin");
-  insert.run("cliente1", "cliente1", c1Hash, "client");
-  insert.run("cliente2", "cliente2", c2Hash, "client");
-}
-ensureUsers();
-
-/* ======================
-   LOGIN
+   AUTH
 ====================== */
 app.post("/auth/login", (req, res) => {
-  try {
-    let { username, password } = req.body || {};
+  const { username, password } = req.body || {};
 
-    if ((!username || !password) && req.rawBody) {
-      const maybe = parseJSONSafe(req.rawBody, null);
-      if (maybe) {
-        username = maybe.username;
-        password = maybe.password;
-      }
-    }
-
-    if (!username || !password)
-      return res.status(400).json({ error: "Faltan credenciales" });
-
-    const user = db
-      .prepare("SELECT id, username, password_hash, role FROM users WHERE username = ?")
-      .get(username);
-
-    if (!user) return res.status(401).json({ error: "Credenciales inválidas" });
-
-    const ok = bcrypt.compareSync(password, user.password_hash);
-    if (!ok) return res.status(401).json({ error: "Credenciales inválidas" });
-
-    const token = signToken({ id: user.id, role: user.role });
-
-    res.json({
-      token,
-      user: { id: user.id, username: user.username, role: user.role },
-    });
-  } catch {
-    res.status(500).json({ error: "Error interno" });
+  if (!username || !password) {
+    return res.status(400).json({ error: "Faltan credenciales" });
   }
+
+  const user = db
+    .prepare("SELECT id, username, password_hash, role FROM users WHERE username = ?")
+    .get(username);
+
+  if (!user) return res.status(401).json({ error: "Credenciales inválidas" });
+
+  const ok = bcrypt.compareSync(password, user.password_hash);
+  if (!ok) return res.status(401).json({ error: "Credenciales inválidas" });
+
+  const token = signToken({ id: user.id, role: user.role });
+
+  res.json({
+    token,
+    user: { id: user.id, username: user.username, role: user.role },
+  });
 });
 
 /* ======================
-   USERS
+   ME
+====================== */
+app.get("/me", authRequired, (req, res) => {
+  const u = db
+    .prepare("SELECT id, username, role FROM users WHERE id = ?")
+    .get(req.user.id);
+
+  if (!u) return res.status(401).json({ error: "Usuario no válido" });
+  res.json({ user: u });
+});
+
+/* ======================
+   USERS GET
 ====================== */
 app.get("/users", authRequired, adminOnly, (_req, res) => {
   const users = db
@@ -164,6 +114,9 @@ app.get("/users", authRequired, adminOnly, (_req, res) => {
   res.json(users);
 });
 
+/* ======================
+   USERS CREATE
+====================== */
 app.post("/users", authRequired, adminOnly, (req, res) => {
   try {
     const { username, password, role } = req.body || {};
@@ -177,27 +130,21 @@ app.post("/users", authRequired, adminOnly, (req, res) => {
     const id = crypto.randomUUID();
     const hash = bcrypt.hashSync(password, 10);
 
-    db.prepare(
-      "INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)"
-    ).run(id, username, hash, role || "client");
+    db.prepare("INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)")
+      .run(id, username, hash, role || "client");
 
     res.json({ ok: true, user: { id, username, role: role || "client" } });
-  } catch {
+  } catch (e) {
     res.status(500).json({ error: "Error creando usuario" });
   }
 });
 
 /* ======================
-   CLIENTS GET  🔥 FIX
+   CLIENTS GET
 ====================== */
-app.get("/clients", authRequired, (req, res) => {
-  try {
-    const rows = db.prepare("SELECT * FROM clients ORDER BY id DESC").all();
-    const parsed = rows.map(rowToClient); // 🔥 ESTO ARREGLA TODO
-    res.json(parsed);
-  } catch {
-    res.status(500).json({ error: "Error obteniendo clientes" });
-  }
+app.get("/clients", authRequired, (_req, res) => {
+  const rows = db.prepare("SELECT * FROM clients ORDER BY id DESC").all();
+  res.json(rows.map(rowToClient));
 });
 
 /* ======================
@@ -207,67 +154,96 @@ app.post("/clients", authRequired, adminOnly, (req, res) => {
   const { name } = req.body || {};
   if (!name) return res.status(400).json({ error: "Nombre requerido" });
 
-  const emptyNutrition = JSON.stringify({ adherence: [] });
-  const emptyProgress = JSON.stringify([]);
-
   const info = db.prepare(`
     INSERT INTO clients (name, active, routine, goalWeight, assignedUserId, nutrition, progress)
     VALUES (?, 1, '', '', NULL, ?, ?)
-  `).run(name.trim(), emptyNutrition, emptyProgress);
+  `).run(
+    name,
+    JSON.stringify({ adherence: [] }),
+    JSON.stringify([])
+  );
 
   const row = db.prepare("SELECT * FROM clients WHERE id = ?").get(info.lastInsertRowid);
   res.json(rowToClient(row));
 });
 
 /* ======================
-   CLIENT PATCH
+   CLIENTS PATCH (FIX FINAL)
 ====================== */
 app.patch("/clients/:id", authRequired, (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const current = db.prepare("SELECT * FROM clients WHERE id = ?").get(id);
-    if (!current) return res.status(404).json({ error: "No encontrado" });
+  const id = Number(req.params.id);
+  const current = db.prepare("SELECT * FROM clients WHERE id = ?").get(id);
+  if (!current) return res.status(404).json({ error: "No encontrado" });
 
-    const patch = req.body || {};
-    const next = { ...current, ...patch };
+  const patch = req.body || {};
+  const next = { ...current, ...patch };
 
-    if (typeof next.nutrition === "object")
-      next.nutrition = JSON.stringify(next.nutrition);
+  // 🔥 FIX DEFINITIVO
+  if ("assignedUserId" in patch && req.user.role === "admin") {
 
-    if (Array.isArray(next.progress) || typeof next.progress === "object")
-      next.progress = JSON.stringify(next.progress);
+    let newUserId = patch.assignedUserId;
 
-    db.prepare(`
-      UPDATE clients SET
-        name = ?,
-        active = ?,
-        routine = ?,
-        goalWeight = ?,
-        assignedUserId = ?,
-        nutrition = ?,
-        progress = ?
-      WHERE id = ?
-    `).run(
-      next.name,
-      next.active ? 1 : 0,
-      next.routine || "",
-      next.goalWeight || "",
-      next.assignedUserId ?? null,
-      next.nutrition || JSON.stringify({ adherence: [] }),
-      next.progress || JSON.stringify([]),
-      id
-    );
+    if (!newUserId) {
+      next.assignedUserId = null;
+    } else {
+      newUserId = String(newUserId).trim();
 
-    const updated = db.prepare("SELECT * FROM clients WHERE id = ?").get(id);
-    res.json(rowToClient(updated));
-  } catch {
-    res.status(500).json({ error: "Error actualizando cliente" });
+      const exists = db.prepare("SELECT id FROM users WHERE id = ?").get(newUserId);
+      if (!exists) {
+        return res.status(400).json({ error: "Ese usuario no existe." });
+      }
+
+      const taken = db
+        .prepare("SELECT id FROM clients WHERE assignedUserId = ? AND id <> ?")
+        .get(newUserId, id);
+
+      if (taken) {
+        return res.status(409).json({ error: "Ese usuario ya está asignado" });
+      }
+
+      next.assignedUserId = newUserId;
+    }
   }
+
+  if (typeof next.nutrition === "object") next.nutrition = JSON.stringify(next.nutrition);
+  if (Array.isArray(next.progress)) next.progress = JSON.stringify(next.progress);
+
+  db.prepare(`
+    UPDATE clients SET
+      name = ?,
+      active = ?,
+      routine = ?,
+      goalWeight = ?,
+      assignedUserId = ?,
+      nutrition = ?,
+      progress = ?
+    WHERE id = ?
+  `).run(
+    next.name,
+    next.active ? 1 : 0,
+    next.routine || "",
+    next.goalWeight || "",
+    next.assignedUserId ?? null,
+    next.nutrition || JSON.stringify({ adherence: [] }),
+    next.progress || JSON.stringify([]),
+    id
+  );
+
+  const updated = db.prepare("SELECT * FROM clients WHERE id = ?").get(id);
+  res.json(rowToClient(updated));
+});
+
+/* ======================
+   DELETE
+====================== */
+app.delete("/clients/:id", authRequired, adminOnly, (req, res) => {
+  db.prepare("DELETE FROM clients WHERE id = ?").run(Number(req.params.id));
+  res.json({ ok: true });
 });
 
 /* ======================
    START
 ====================== */
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`API corriendo en ${PORT}`);
+  console.log("API corriendo");
 });
