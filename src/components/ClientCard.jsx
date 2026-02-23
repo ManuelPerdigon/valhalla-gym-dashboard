@@ -6,7 +6,6 @@ import { useToast } from "./ToastProvider";
 export default function ClientCard({
   client,
 
-  // acciones
   toggleStatus,
   deleteClient,
   saveRoutine,
@@ -16,36 +15,29 @@ export default function ClientCard({
   saveGoalWeight,
   exportClientCSV,
 
-  // ✅ NUEVO: asignación
-  users = [], // lista de users role=client desde AdminApp
-  onAssignUser, // (clientId, userIdOrNull) => Promise
-  busy = false, // para deshabilitar UI mientras guarda
+  users = [],
+  onAssignUser,
+  busy = false,
 }) {
   const { showToast } = useToast();
 
   const [openSection, setOpenSection] = useState(null);
 
-  // ===== Drafts para autosave =====
   const [draftRoutine, setDraftRoutine] = useState(client.routine || "");
   const [draftGoal, setDraftGoal] = useState(client.goalWeight || "");
   const [draftNutrition, setDraftNutrition] = useState(client.nutrition || {});
-
-  // ===== UI save state =====
   const [saveState, setSaveState] = useState({
-    routine: "idle", // idle | dirty | saving | saved | error
+    routine: "idle",
     goal: "idle",
     nutrition: "idle",
   });
 
-  // Evitar autosave en primer render
   const didMount = useRef(false);
 
-  // ===== Asignación UI =====
   const [assignValue, setAssignValue] = useState(
     client.assignedUserId ? String(client.assignedUserId) : ""
   );
 
-  // Sincroniza drafts cuando cambie el cliente (id)
   useEffect(() => {
     setDraftRoutine(client.routine || "");
     setDraftGoal(client.goalWeight || "");
@@ -66,14 +58,9 @@ export default function ClientCard({
     };
     const s = map[state];
     if (!s) return null;
-    return (
-      <span style={{ fontSize: 12, opacity: s.opacity, marginLeft: 10 }}>
-        {s.txt}
-      </span>
-    );
+    return <span style={{ fontSize: 12, opacity: s.opacity, marginLeft: 10 }}>{s.txt}</span>;
   };
 
-  // ===== Autosave: Rutina =====
   useDebouncedEffect(
     async () => {
       if (!didMount.current) {
@@ -96,7 +83,6 @@ export default function ClientCard({
     800
   );
 
-  // ===== Autosave: Goal Weight =====
   useDebouncedEffect(
     async () => {
       if (saveState.goal !== "dirty") return;
@@ -114,7 +100,6 @@ export default function ClientCard({
     800
   );
 
-  // ===== Autosave: Nutrition =====
   useDebouncedEffect(
     async () => {
       if (saveState.nutrition !== "dirty") return;
@@ -137,7 +122,6 @@ export default function ClientCard({
     setSaveState((p) => ({ ...p, nutrition: "dirty" }));
   };
 
-  // ===== Progreso (agregar registro) =====
   const [progressForm, setProgressForm] = useState({ date: "", weight: "", reps: "" });
 
   const submitProgress = () => {
@@ -146,7 +130,8 @@ export default function ClientCard({
       return;
     }
 
-    const next = Array.isArray(client.progress) ? [...client.progress] : [];
+    const base = Array.isArray(client.progress) ? client.progress : [];
+    const next = [...base];
     next.unshift({
       date: progressForm.date,
       weight: progressForm.weight,
@@ -158,7 +143,6 @@ export default function ClientCard({
     showToast("Progreso agregado ✅");
   };
 
-  // ===== Adherencia nutrición (log simple) =====
   const [adhText, setAdhText] = useState("");
   const submitAdherence = () => {
     const t = adhText.trim();
@@ -166,10 +150,7 @@ export default function ClientCard({
       showToast("Escribe algo para la bitácora", "warning");
       return;
     }
-
-    // ✅ completed para dashboard
     const log = { date: new Date().toISOString(), note: t, completed: true };
-
     addNutritionLog(client.id, log);
     setAdhText("");
     showToast("Bitácora agregada ✅");
@@ -198,25 +179,17 @@ export default function ClientCard({
     [client.active]
   );
 
-  // ===== Helpers asignación =====
   const assignedUser = useMemo(() => {
     if (!client.assignedUserId) return null;
     return users.find((u) => String(u.id) === String(client.assignedUserId)) || null;
   }, [client.assignedUserId, users]);
-
-  // (Opcional) bloquear usuarios que ya están asignados a otro cliente
-  // Si quieres que se puedan reasignar libremente, quita esta lógica y usa users tal cual.
-  const availableUsers = useMemo(() => {
-    // si no viene info suficiente, solo devuelve users
-    return users;
-  }, [users]);
 
   const handleAssignChange = async (e) => {
     const val = e.target.value; // "" | userId
     setAssignValue(val);
 
     if (!onAssignUser) {
-      showToast("Falta onAssignUser en ClientCard (prop).", "error");
+      showToast("Falta onAssignUser en ClientCard.", "error");
       return;
     }
 
@@ -241,45 +214,36 @@ export default function ClientCard({
         background: "#0b0b0b",
       }}
     >
-      {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
         <div style={{ flex: 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <h3 style={{ margin: 0 }}>{client.name}</h3>
             <span style={headerPillStyle}>{client.active ? "Activo" : "Inactivo"}</span>
 
-            {/* ✅ Asignación */}
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 6, flexWrap: "wrap" }}>
               <small style={{ opacity: 0.75 }}>Asignado:</small>
               <strong style={{ fontSize: 12 }}>
                 {assignedUser ? assignedUser.username : "— Sin asignar —"}
               </strong>
 
-              <select
-                value={assignValue}
-                onChange={handleAssignChange}
-                disabled={busy}
-                style={{
-                  background: "#0f0f0f",
-                  border: "1px solid #333",
-                  color: "#fff",
-                  padding: "8px 10px",
-                  borderRadius: "10px",
-                  minWidth: 220,
-                }}
-              >
+              {/* ✅ Importante para Safari: NO le meto estilos oscuros al select */}
+              <select value={assignValue} onChange={handleAssignChange} disabled={busy}>
                 <option value="">— Sin asignar —</option>
-                {availableUsers.map((u) => (
+                {users.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.username}
                   </option>
                 ))}
               </select>
+
+              <small style={{ opacity: 0.65, fontSize: 12 }}>
+                users: {users.length}
+              </small>
             </div>
           </div>
 
           <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
-            ID: {client.id} · Progreso: {(client.progress || []).length} registros
+            ID: {client.id}
           </div>
         </div>
 
@@ -290,20 +254,12 @@ export default function ClientCard({
           <button type="button" onClick={() => toggleStatus(client.id)} disabled={busy}>
             {client.active ? "Desactivar" : "Activar"}
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              deleteClient(client.id);
-              showToast("Cliente eliminado 🗑️", "warning");
-            }}
-            disabled={busy}
-          >
+          <button type="button" onClick={() => deleteClient(client.id)} disabled={busy}>
             🗑️ Eliminar
           </button>
         </div>
       </div>
 
-      {/* Tabs */}
       <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
         <button
           type="button"
@@ -342,15 +298,10 @@ export default function ClientCard({
         </button>
       </div>
 
-      {/* Content */}
       <div style={{ marginTop: 12 }}>
-        {/* ===== Rutina ===== */}
         {isOpen("routine") && (
           <div style={{ borderTop: "1px solid #222", paddingTop: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <h4 style={{ margin: 0 }}>Rutina</h4>
-              {renderSaveBadge(saveState.routine)}
-            </div>
+            <h4 style={{ margin: 0 }}>Rutina</h4>
 
             <textarea
               value={draftRoutine}
@@ -371,20 +322,12 @@ export default function ClientCard({
               }}
               disabled={busy}
             />
-
-            <small style={{ display: "block", marginTop: 8, opacity: 0.7 }}>
-              Auto-guardado cada ~0.8s cuando dejas de escribir.
-            </small>
           </div>
         )}
 
-        {/* ===== Nutrición ===== */}
         {isOpen("nutrition") && (
           <div style={{ borderTop: "1px solid #222", paddingTop: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <h4 style={{ margin: 0 }}>Plan de Nutrición</h4>
-              {renderSaveBadge(saveState.nutrition)}
-            </div>
+            <h4 style={{ margin: 0 }}>Plan de Nutrición</h4>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginTop: 10 }}>
               <input
@@ -444,25 +387,10 @@ export default function ClientCard({
                   Agregar
                 </button>
               </div>
-
-              {(client.nutrition?.adherence || []).length > 0 && (
-                <ul style={{ marginTop: 10, paddingLeft: 16 }}>
-                  {(client.nutrition?.adherence || []).slice(0, 6).map((a, idx) => (
-                    <li key={idx} style={{ opacity: 0.85 }}>
-                      {a.note || JSON.stringify(a)}
-                    </li>
-                  ))}
-                </ul>
-              )}
             </div>
-
-            <small style={{ display: "block", marginTop: 8, opacity: 0.7 }}>
-              Auto-guardado cada ~0.9s.
-            </small>
           </div>
         )}
 
-        {/* ===== Progreso ===== */}
         {isOpen("progress") && (
           <div style={{ borderTop: "1px solid #222", paddingTop: 12 }}>
             <h4 style={{ margin: 0 }}>Progreso</h4>
@@ -493,29 +421,12 @@ export default function ClientCard({
                 Agregar progreso
               </button>
             </div>
-
-            {(client.progress || []).length > 0 && (
-              <div style={{ marginTop: 10 }}>
-                <small style={{ opacity: 0.7 }}>Últimos registros:</small>
-                <ul style={{ marginTop: 6, paddingLeft: 16 }}>
-                  {(client.progress || []).slice(0, 8).map((p, idx) => (
-                    <li key={idx}>
-                      {p.date} — {p.weight} {p.reps ? `(${p.reps})` : ""}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
           </div>
         )}
 
-        {/* ===== Meta ===== */}
         {isOpen("goal") && (
           <div style={{ borderTop: "1px solid #222", paddingTop: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <h4 style={{ margin: 0 }}>Meta de peso</h4>
-              {renderSaveBadge(saveState.goal)}
-            </div>
+            <h4 style={{ margin: 0 }}>Meta de peso</h4>
 
             <input
               placeholder="Ej: 78 kg"
@@ -535,10 +446,6 @@ export default function ClientCard({
               }}
               disabled={busy}
             />
-
-            <small style={{ display: "block", marginTop: 8, opacity: 0.7 }}>
-              Auto-guardado.
-            </small>
           </div>
         )}
       </div>

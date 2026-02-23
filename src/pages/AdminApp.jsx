@@ -8,7 +8,7 @@ import ConfirmModal from "../components/ConfirmModal";
 import { useAuth } from "../context/AuthContext";
 
 export default function AdminApp() {
-  const { user, logout, API_URL, authHeaders } = useAuth();
+  const { user, logout, API_URL, authHeaders, token, isAuthed } = useAuth();
 
   const [clients, setClients] = useState([]);
   const [name, setName] = useState("");
@@ -29,7 +29,7 @@ export default function AdminApp() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  // Debug visible (para saber por qué está vacío)
+  // Debug visible
   const [debug, setDebug] = useState({
     usersOk: null,
     usersStatus: null,
@@ -38,40 +38,15 @@ export default function AdminApp() {
     clientsOk: null,
     clientsStatus: null,
     clientsCount: 0,
-    // extra
-    clientsSample: null,
-    clientsNamePreview: null,
   });
 
   // Toast
   const [toast, setToast] = useState(null);
-  const showToast = (t) => setToast(t); // ✅ no forzar success
+  const showToast = (t) => setToast(t);
 
   // Confirm delete modal
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [toDelete, setToDelete] = useState(null);
-
-  // ✅ Helpers para “desenvolver” respuestas del API sin romper nada
-  const normalizeClient = (data) => {
-    if (!data) return null;
-    // casos comunes:
-    // 1) backend regresa { ok:true, client:{...} }
-    if (data.client) return data.client;
-    // 2) backend regresa { ok:true, data:{...} }
-    if (data.data && typeof data.data === "object") return data.data;
-    // 3) backend regresa { id, name, ... } directo
-    return data;
-  };
-
-  const normalizeClientList = (data) => {
-    if (Array.isArray(data)) return data;
-    // casos comunes:
-    // 1) { ok:true, clients:[...] }
-    if (Array.isArray(data?.clients)) return data.clients;
-    // 2) { ok:true, data:[...] }
-    if (Array.isArray(data?.data)) return data.data;
-    return [];
-  };
 
   async function apiFetch(path, options = {}) {
     const res = await fetch(`${API_URL}${path}`, {
@@ -90,7 +65,6 @@ export default function AdminApp() {
   const refreshUsers = async () => {
     const res = await apiFetch("/users", { method: "GET" });
 
-    // aquí tu API sí devuelve array, lo dejamos igual
     const list = Array.isArray(res.data) ? res.data : [];
     setUsers(list);
 
@@ -118,8 +92,7 @@ export default function AdminApp() {
   const refreshClients = async () => {
     const res = await apiFetch("/clients", { method: "GET" });
 
-    // ✅ AQUI EL CAMBIO: normalizamos lista
-    const list = normalizeClientList(res.data).map(normalizeClient).filter(Boolean);
+    const list = Array.isArray(res.data) ? res.data : [];
     setClients(list);
 
     setDebug((d) => ({
@@ -127,8 +100,6 @@ export default function AdminApp() {
       clientsOk: res.ok,
       clientsStatus: res.status,
       clientsCount: list.length,
-      clientsSample: list[0] ? list[0] : null,
-      clientsNamePreview: list[0] ? (list[0].name ?? list[0].clientName ?? null) : null,
     }));
 
     if (!res.ok) {
@@ -148,10 +119,14 @@ export default function AdminApp() {
     setLoading(false);
   }
 
+  // ✅ FIX REAL:
+  // Cuando ya estás autenticado (token listo), vuelve a cargar users/clients.
   useEffect(() => {
+    if (!isAuthed) return;
+    if (user?.role !== "admin") return;
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isAuthed, token, user?.role]);
 
   /* ===== CLIENTES ===== */
   const addClient = async () => {
@@ -173,27 +148,9 @@ export default function AdminApp() {
       return;
     }
 
-    // ✅ AQUI EL CAMBIO: normalizamos el cliente creado
-    const created = normalizeClient(res.data);
-
-    // si por alguna razón no trae name, lo “forzamos” al menos a verse en el select
-    const safeCreated = created
-      ? {
-          ...created,
-          name: created.name ?? created.clientName ?? n,
-        }
-      : null;
-
-    if (!safeCreated) {
-      showToast({ type: "error", title: "Respuesta rara del API", message: "No llegó el cliente creado." });
-      await refreshClients();
-      setName("");
-      return;
-    }
-
-    setClients((prev) => [safeCreated, ...prev]);
+    setClients((prev) => [res.data, ...prev]);
     setName("");
-    showToast({ type: "success", title: "Cliente creado", message: safeCreated.name });
+    showToast({ type: "success", title: "Cliente creado", message: n });
   };
 
   const requestDeleteClient = (client) => {
@@ -235,8 +192,7 @@ export default function AdminApp() {
       return;
     }
 
-    const updated = normalizeClient(res.data) || res.data;
-    setClients((prev) => prev.map((x) => (x.id === id ? updated : x)));
+    setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
   };
 
   const saveRoutine = async (id, routine) => {
@@ -252,8 +208,7 @@ export default function AdminApp() {
       return;
     }
 
-    const updated = normalizeClient(res.data) || res.data;
-    setClients((prev) => prev.map((x) => (x.id === id ? updated : x)));
+    setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
   };
 
   const addProgress = async (id, newProgressArray) => {
@@ -269,8 +224,7 @@ export default function AdminApp() {
       return;
     }
 
-    const updated = normalizeClient(res.data) || res.data;
-    setClients((prev) => prev.map((x) => (x.id === id ? updated : x)));
+    setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
   };
 
   const saveGoalWeight = async (id, goalWeight) => {
@@ -286,8 +240,7 @@ export default function AdminApp() {
       return;
     }
 
-    const updated = normalizeClient(res.data) || res.data;
-    setClients((prev) => prev.map((x) => (x.id === id ? updated : x)));
+    setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
   };
 
   const saveNutrition = async (id, nutritionData) => {
@@ -311,8 +264,7 @@ export default function AdminApp() {
       return;
     }
 
-    const updated = normalizeClient(res.data) || res.data;
-    setClients((prev) => prev.map((x) => (x.id === id ? updated : x)));
+    setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
   };
 
   const addNutritionLog = async (id, log) => {
@@ -336,42 +288,14 @@ export default function AdminApp() {
       return;
     }
 
-    const updated = normalizeClient(res.data) || res.data;
-    setClients((prev) => prev.map((x) => (x.id === id ? updated : x)));
-  };
-
-  const exportClientCSV = (id) => {
-    const client = clients.find((c) => c.id === id);
-    if (!client) return;
-
-    const rows = [
-      ["Nombre", client.name],
-      ["Activo", client.active ? "Sí" : "No"],
-      ["Objetivo peso", client.goalWeight || ""],
-      ["Rutina", client.routine || ""],
-      [],
-      ["Fecha", "Peso", "Reps"],
-      ...(client.progress || []).map((p) => [p.date, p.weight, p.reps]),
-    ];
-
-    const csv = rows.map((r) => r.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${client.name}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-
-    showToast({ type: "success", title: "CSV exportado", message: client.name });
+    setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
   };
 
   /* ===== CREAR USER + ASIGNAR ===== */
   const createClientUser = async () => {
     setUErr("");
 
-    const displayName = uName.trim(); // (si luego quieres guardarlo, lo metemos al back)
+    const displayName = uName.trim();
     const username = uUsername.trim();
     const pass = uPassword;
 
@@ -393,11 +317,9 @@ export default function AdminApp() {
       return;
     }
 
-    const newUserId = r.data?.user?.id || r.data?.id;
-
-    const patch = await apiFetch(`/clients/${uClientId}`, {
+    const patch = await apiFetch(`/clients/${Number(uClientId)}`, {
       method: "PATCH",
-      body: JSON.stringify({ assignedUserId: newUserId }),
+      body: JSON.stringify({ assignedUserId: r.data.user.id }),
     });
 
     setBusy(false);
@@ -407,9 +329,7 @@ export default function AdminApp() {
       return;
     }
 
-    const updatedClient = normalizeClient(patch.data) || patch.data;
-
-    setClients((prev) => prev.map((c) => (c.id === uClientId ? patch.data : c)));
+    setClients((prev) => prev.map((c) => (c.id === Number(uClientId) ? patch.data : c)));
     await refreshUsers();
 
     setUName("");
@@ -417,7 +337,7 @@ export default function AdminApp() {
     setUPassword("");
     setUClientId("");
 
-    showToast({ type: "success", title: "Usuario creado y asignado", message: `${username} → ${updatedClient.name}` });
+    showToast({ type: "success", title: "Usuario creado y asignado", message: `${username} → ${patch.data.name}` });
   };
 
   const assignClientUser = async (clientId, userIdOrNull) => {
@@ -435,8 +355,7 @@ export default function AdminApp() {
       return;
     }
 
-    const updated = normalizeClient(res.data) || res.data;
-    setClients((prev) => prev.map((c) => (c.id === clientId ? updated : c)));
+    setClients((prev) => prev.map((c) => (c.id === clientId ? res.data : c)));
   };
 
   const visibleClients = useMemo(() => {
@@ -455,18 +374,7 @@ export default function AdminApp() {
     return list;
   }, [clients, search, statusFilter, sortBy]);
 
-  const clientUsers = users.filter((u) => u.role === "client");
-
-  // ✅ Clientes “usables” para el select, aunque el back venga raro
-  const clientsForSelect = useMemo(() => {
-    return (clients || [])
-      .map((c) => ({
-        ...c,
-        // fallback para no dejar opciones “en blanco”
-        name: c?.name ?? c?.clientName ?? `Cliente ${c?.id ?? ""}`,
-      }))
-      .filter((c) => c && c.id != null);
-  }, [clients]);
+  const clientUsers = useMemo(() => users.filter((u) => u.role === "client"), [users]);
 
   return (
     <div className="app">
@@ -506,7 +414,6 @@ export default function AdminApp() {
 
         <small className="muted">API: {API_URL}</small>
 
-        {/* DEBUG */}
         <div style={{ marginTop: 10, fontSize: 12, opacity: 0.85 }}>
           <div><strong>DEBUG</strong></div>
           <div>
@@ -518,12 +425,7 @@ export default function AdminApp() {
           <div>
             /clients → ok: <strong>{String(debug.clientsOk)}</strong> · status:{" "}
             <strong>{debug.clientsStatus ?? "-"}</strong> · count:{" "}
-            <strong>{debug.clientsCount}</strong> · sample:{" "}
-            <strong>{debug.clientsSample ? JSON.stringify(debug.clientsSample) : "—"}</strong>
-          </div>
-          <div>
-            clientsForSelect → <strong>{clientsForSelect.length}</strong> · namePreview:{" "}
-            <strong>{debug.clientsNamePreview ?? "—"}</strong>
+            <strong>{debug.clientsCount}</strong>
           </div>
           <div>
             users(role=client) → <strong>{clientUsers.length}</strong>
@@ -563,17 +465,9 @@ export default function AdminApp() {
               value={uClientId}
               onChange={(e) => setUClientId(e.target.value)}
               disabled={busy}
-              style={{
-                background: "#0f0f0f",
-                border: "1px solid #333",
-                color: "#fff",
-                padding: "10px",
-                borderRadius: "10px",
-              }}
             >
               <option value="">Asignar a cliente…</option>
-
-              {clientsForSelect
+              {clients
                 .slice()
                 .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
                 .map((c) => (
@@ -609,31 +503,13 @@ export default function AdminApp() {
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             disabled={busy}
-            style={{
-              background: "#0f0f0f",
-              border: "1px solid #333",
-              color: "#fff",
-              padding: "10px",
-              borderRadius: "10px",
-            }}
           >
             <option value="all">Todos</option>
             <option value="active">Activos</option>
             <option value="inactive">Inactivos</option>
           </select>
 
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            disabled={busy}
-            style={{
-              background: "#0f0f0f",
-              border: "1px solid #333",
-              color: "#fff",
-              padding: "10px",
-              borderRadius: "10px",
-            }}
-          >
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} disabled={busy}>
             <option value="recent">Más recientes</option>
             <option value="old">Más antiguos</option>
             <option value="az">A → Z</option>
@@ -679,7 +555,7 @@ export default function AdminApp() {
               saveNutrition={saveNutrition}
               addNutritionLog={addNutritionLog}
               saveGoalWeight={saveGoalWeight}
-              exportClientCSV={exportClientCSV}
+              exportClientCSV={() => {}}
             />
           ))
         )}
