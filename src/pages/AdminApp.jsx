@@ -395,7 +395,7 @@ export default function AdminApp() {
 
     const newUserId = r.data?.user?.id || r.data?.id;
 
-    const patch = await apiFetch(`/clients/${Number(uClientId)}`, {
+    const patch = await apiFetch(`/clients/${uClientId}`, {
       method: "PATCH",
       body: JSON.stringify({ assignedUserId: newUserId }),
     });
@@ -409,7 +409,7 @@ export default function AdminApp() {
 
     const updatedClient = normalizeClient(patch.data) || patch.data;
 
-    setClients((prev) => prev.map((c) => (Number(c.id) === Number(uClientId) ? updatedClient : c)));
+    setClients((prev) => prev.map((c) => (c.id === uClientId ? patch.data : c)));
     await refreshUsers();
 
     setUName("");
