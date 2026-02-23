@@ -48,17 +48,48 @@ export default function AdminApp() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [toDelete, setToDelete] = useState(null);
 
+  // ✅ FIX REAL: parsea JSON normal y "JSON dentro de string"
   async function apiFetch(path, options = {}) {
-    const res = await fetch(`${API_URL}${path}`, {
-      ...options,
-      headers: {
-        ...(options.headers || {}),
-        ...authHeaders,
-        "Content-Type": "application/json",
-      },
-    });
+    const url = `${API_URL}${path}`;
 
-    const data = await res.json().catch(() => ({}));
+    const headers = {
+      ...(options.headers || {}),
+      ...authHeaders,
+    };
+
+    // Solo setea Content-Type si NO es FormData
+    const isFormData = options.body instanceof FormData;
+    if (!isFormData) headers["Content-Type"] = "application/json";
+
+    const res = await fetch(url, { ...options, headers });
+
+    // lee como texto SIEMPRE
+    const rawText = await res.text().catch(() => "");
+
+    // intenta parsear 1 vez
+    let data = rawText;
+    try {
+      data = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      // si no es JSON, se queda como texto
+      data = rawText;
+    }
+
+    // ✅ si lo que quedó es STRING y parece JSON, parsea 2da vez
+    if (typeof data === "string") {
+      const trimmed = data.trim();
+      if (
+        (trimmed.startsWith("[") && trimmed.endsWith("]")) ||
+        (trimmed.startsWith("{") && trimmed.endsWith("}"))
+      ) {
+        try {
+          data = JSON.parse(trimmed);
+        } catch {
+          // se queda como string
+        }
+      }
+    }
+
     return { ok: res.ok, status: res.status, data };
   }
 
@@ -119,8 +150,7 @@ export default function AdminApp() {
     setLoading(false);
   }
 
-  // ✅ FIX REAL:
-  // Cuando ya estás autenticado (token listo), vuelve a cargar users/clients.
+  // ✅ Solo carga cuando ya hay token y eres admin (evita el 401 inicial)
   useEffect(() => {
     if (!isAuthed) return;
     if (user?.role !== "admin") return;
@@ -461,11 +491,7 @@ export default function AdminApp() {
               disabled={busy}
             />
 
-            <select
-              value={uClientId}
-              onChange={(e) => setUClientId(e.target.value)}
-              disabled={busy}
-            >
+            <select value={uClientId} onChange={(e) => setUClientId(e.target.value)} disabled={busy}>
               <option value="">Asignar a cliente…</option>
               {clients
                 .slice()
@@ -499,11 +525,7 @@ export default function AdminApp() {
             disabled={busy}
           />
 
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            disabled={busy}
-          >
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} disabled={busy}>
             <option value="all">Todos</option>
             <option value="active">Activos</option>
             <option value="inactive">Inactivos</option>
