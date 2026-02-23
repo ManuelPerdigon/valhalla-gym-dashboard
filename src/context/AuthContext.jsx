@@ -1,13 +1,32 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5050";
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
+  // 1) API URL correcto (Vercel necesita env var)
+  const envApi = import.meta.env.VITE_API_URL;
+  const [API_URL] = useState(() => {
+    let url = envApi || "http://localhost:5050";
+
+    // Safety: si estás en dominio https (Vercel) y quedó localhost, corrige
+    if (typeof window !== "undefined") {
+      const isProdSite = window.location.origin.includes("vercel.app");
+      if (isProdSite && url.includes("localhost")) {
+        url = "https://valhalla-gym-api.onrender.com";
+      }
+    }
+
+    return url;
+  });
+
   const [token, setToken] = useState(() => localStorage.getItem("vh_token") || "");
   const [user, setUser] = useState(() => {
     const raw = localStorage.getItem("vh_user");
-    return raw ? JSON.parse(raw) : null;
+    try {
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
   });
   const [loading, setLoading] = useState(false);
 
@@ -17,31 +36,32 @@ export function AuthProvider({ children }) {
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, [token]);
 
-  // Verifica token al cargar (opcional pero recomendado)
+  // 2) Check token (suave): si falla NO te desloguea automático
   useEffect(() => {
     const check = async () => {
       if (!token) return;
 
       try {
-        const res = await fetch(`${API_URL}/me`, {
-          headers: { ...authHeaders },
-        });
+        const res = await fetch(`${API_URL}/me`, { headers: { ...authHeaders } });
 
-        if (!res.ok) throw new Error("Token inválido");
-        const data = await res.json();
+        // si tu API no tiene /me, NO mates la sesión
+        if (res.status === 404) return;
 
-        // Mantener user sincronizado
-        setUser(data.user);
-        localStorage.setItem("vh_user", JSON.stringify(data.user));
+        if (!res.ok) return; // tampoco logout automático
+        const data = await res.json().catch(() => ({}));
+
+        if (data?.user) {
+          setUser(data.user);
+          localStorage.setItem("vh_user", JSON.stringify(data.user));
+        }
       } catch {
-        // Limpia si token falló
-        logout();
+        // no hacer logout automático
       }
     };
 
     check();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [API_URL]);
 
   const login = async (username, password) => {
     setLoading(true);
@@ -52,7 +72,7 @@ export function AuthProvider({ children }) {
         body: JSON.stringify({ username, password }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Login falló");
 
       setToken(data.token);

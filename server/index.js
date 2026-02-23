@@ -241,16 +241,13 @@ app.post("/users", authRequired, adminOnly, (req, res) => {
    CLIENTS GET
 ====================== */
 app.get("/clients", authRequired, (req, res) => {
-  if (req.user.role === "admin") {
+  try {
     const rows = db.prepare("SELECT * FROM clients ORDER BY id DESC").all();
-    return res.json(rows.map(rowToClient));
+
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: "Error obteniendo clientes" });
   }
-
-  const rows = db
-    .prepare("SELECT * FROM clients WHERE assignedUserId = ? ORDER BY id DESC")
-    .all(req.user.id);
-
-  return res.json(rows.map(rowToClient));
 });
 
 /* ======================
