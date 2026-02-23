@@ -1,10 +1,12 @@
+// src/App.jsx
 import { useEffect, useState } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ToastProvider } from "./components/ToastProvider";
 
-// ✅ Ajusta estos imports a tus archivos reales:
 import AdminApp from "./pages/AdminApp";
-import ClientApp from "./pages/ClientApp"; // <-- CAMBIA si tu app normal se llama distinto
+import ClientApp from "./pages/ClientApp";
+
+import "./App.css"; // ✅ importante (estilos)
 
 function RouterLike() {
   const { user, isAuthed } = useAuth();
@@ -18,19 +20,24 @@ function RouterLike() {
 
   const isAdminPath = path.startsWith("/admin");
 
-  // ✅ Si intentan entrar a /admin sin ser admin, los mandamos a /
+  // ✅ Si está en /admin pero no está logeado, lo mandamos al login normal ("/")
   useEffect(() => {
     if (!isAdminPath) return;
-    if (!isAuthed) return; // aún no logea
+
+    if (!isAuthed) {
+      window.history.replaceState({}, "", "/");
+      setPath("/");
+      return;
+    }
 
     if (user?.role !== "admin") {
-      window.history.pushState({}, "", "/");
+      window.history.replaceState({}, "", "/");
       setPath("/");
     }
   }, [isAdminPath, isAuthed, user?.role]);
 
-  // ✅ Render correcto según URL
-  if (isAdminPath) return <AdminApp />;
+  // Render
+  if (isAdminPath && isAuthed && user?.role === "admin") return <AdminApp />;
   return <ClientApp />;
 }
 

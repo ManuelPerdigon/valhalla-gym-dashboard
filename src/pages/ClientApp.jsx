@@ -1,268 +1,486 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+// src/pages/ClientApp.jsx
+import { useEffect, useMemo, useState } from "react";
+import Dashboard from "../components/Dashboard";
 import { useAuth } from "../context/AuthContext";
-import ClientCard from "../components/ClientCard";
-import MiniClientWeight from "../components/MiniClientWeight";
-import NutritionChart from "../components/NutritionChart";
+
+function parseJSONSafe(v, fallback) {
+  try {
+    if (v == null) return fallback;
+    if (typeof v === "string") return JSON.parse(v);
+    return v;
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeClient(raw) {
+  if (!raw || typeof raw !== "object") return raw;
+  return {
+    ...raw,
+    nutrition: parseJSONSafe(raw.nutrition, { adherence: [] }),
+    progress: parseJSONSafe(raw.progress, []),
+  };
+}
 
 export default function ClientApp() {
-  const { user, logout } = useAuth();
+  const { API_URL, authHeaders, user, isAuthed, login, logout, loading: authLoading } = useAuth();
 
-  const [clients, setClients] = useState([]);
-  const isFirstLoad = useRef(true);
+  // login form
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
 
-  /* ===== PERSISTENCIA CLIENTES ===== */
-  useEffect(() => {
-    const stored = localStorage.getItem("clients");
-    if (stored) setClients(JSON.parse(stored));
-  }, []);
+  // data
+  const [client, setClient] = useState(null);
+  const [clientsRaw, setClientsRaw] = useState([]); // por si quieres dashboard global
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (isFirstLoad.current) {
-      isFirstLoad.current = false;
+  const [err, setErr] = useState("");
+
+  // ===== API helper =====
+  async function apiFetch(path, options = {}) {
+    const res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        ...authHeaders,
+        "Content-Type": "application/json",
+      },
+    });
+
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, status: res.status, data };
+  }
+
+  // ===== load client assigned to logged-in user =====
+  const loadAssignedClient = async () => {
+    if (!isAuthed || !user?.id) return;
+
+    setLoading(true);
+    setErr("");
+
+    const res = await apiFetch("/clients", { method: "GET" });
+    setLoading(false);
+
+    if (!res.ok) {
+      setErr(res.data?.error || `No se pudo cargar /clients (status ${res.status})`);
+      setClientsRaw([]);
+      setClient(null);
       return;
     }
-    localStorage.setItem("clients", JSON.stringify(clients));
-  }, [clients]);
 
-  const client = useMemo(() => {
-    if (!user?.clientId) return null;
-    return clients.find((c) => c.id === user.clientId) || null;
-  }, [clients, user?.clientId]);
+    const list = Array.isArray(res.data) ? res.data.map(normalizeClient) : [];
+    setClientsRaw(list);
 
-  /* ===== FUNCIONES (SOLO PARA SU PROPIO CLIENTE) ===== */
-  const addProgress = (id, newProgressArray) =>
-    setClients((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, progress: newProgressArray } : c))
-    );
+    // ✅ CLAVE: el cliente “de este usuario”
+    const mine = list.find((c) => String(c.assignedUserId || "") === String(user.id));
+    setClient(mine || null);
+  };
 
-  const saveGoalWeight = (id, goalWeight) =>
-    setClients((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, goalWeight } : c))
-    );
+  // cuando cambia auth, recarga
+  useEffect(() => {
+    if (!isAuthed) return;
+    loadAssignedClient();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthed, user?.id, API_URL]);
 
-  const saveRoutine = (id, routine) =>
-    setClients((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, routine } : c))
-    );
+  // ===== handlers: login/logout =====
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setErr("");
 
-  const saveNutrition = (id, nutritionData) =>
-    setClients((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? { ...c, nutrition: { ...c.nutrition, ...nutritionData } }
-          : c
-      )
-    );
+    const u = username.trim();
+    const p = password;
 
-  const addNutritionLog = (id, log) =>
-    setClients((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? {
-              ...c,
-              nutrition: {
-                ...c.nutrition,
-                adherence: [...c.nutrition.adherence, log],
-              },
-            }
-          : c
-      )
-    );
+    if (!u || !p) {
+      setErr("Escribe usuario y contraseña.");
+      return;
+    }
 
-  /* ===== MÉTRICAS CLIENTE ===== */
-  const progressSorted = useMemo(() => {
-    if (!client?.progress) return [];
-    return [...client.progress].sort(
-      (a, b) => new Date(a.date) - new Date(b.date)
-    );
-  }, [client?.progress]);
+    const r = await login(u, p);
+    if (!r.ok) {
+      setErr(r.error || "Login falló");
+      return;
+    }
 
-  const weightNow = progressSorted.length
-    ? Number(progressSorted[progressSorted.length - 1].weight)
-    : null;
+    // ✅ tras login, carga su cliente asignado
+    // (el effect lo hará, pero esto lo hace inmediato)
+    setTimeout(() => {
+      loadAssignedClient();
+    }, 0);
+  };
 
-  const weightStart = progressSorted.length ? Number(progressSorted[0].weight) : null;
+  const handleLogout = () => {
+    logout();
+    setClient(null);
+    setClientsRaw([]);
+    setUsername("");
+    setPassword("");
+    setErr("");
+  };
 
-  const weightDiff =
-    weightNow !== null && weightStart !== null ? weightNow - weightStart : null;
+  // ===== client actions (solo progress/nutrition) =====
+  const patchClient = async (patch) => {
+    if (!client?.id) return;
 
-  const goalWeightNum =
-    client?.goalWeight !== "" && client?.goalWeight != null
-      ? Number(client.goalWeight)
-      : null;
+    setBusy(true);
+    const res = await apiFetch(`/clients/${client.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+    setBusy(false);
 
-  const progressToGoalPercent = useMemo(() => {
-    // Si no hay goal o no hay pesos, no mostramos barra
-    if (goalWeightNum === null || weightNow === null || weightStart === null)
+    if (!res.ok) {
+      setErr(res.data?.error || `No se pudo guardar (status ${res.status})`);
       return null;
+    }
 
-    // Si ya está en objetivo
-    if (weightNow === goalWeightNum) return 100;
+    const updated = normalizeClient(res.data);
+    setClient(updated);
 
-    // Calculamos avance desde inicio hacia el objetivo
-    const totalNeeded = Math.abs(weightStart - goalWeightNum);
-    const done = Math.abs(weightStart - weightNow);
+    // también actualiza la lista (por si Dashboard lo usa)
+    setClientsRaw((prev) =>
+      prev.map((c) => (String(c.id) === String(updated.id) ? updated : c))
+    );
 
-    if (totalNeeded === 0) return 100;
+    return updated;
+  };
 
-    const pct = Math.round((done / totalNeeded) * 100);
-    return Math.max(0, Math.min(100, pct));
-  }, [goalWeightNum, weightNow, weightStart]);
+  const addProgress = async (newProgressArray) => {
+    await patchClient({ progress: newProgressArray });
+  };
 
-  const adherence = client?.nutrition?.adherence || [];
-  const last14 = adherence.slice(-14);
-  const adherencePercent = last14.length
-    ? Math.round((last14.filter((d) => d.completed).length / last14.length) * 100)
-    : 0;
+  const saveNutrition = async (nutritionObj) => {
+    const current = client?.nutrition || { adherence: [] };
+    await patchClient({
+      nutrition: {
+        ...current,
+        ...nutritionObj,
+      },
+    });
+  };
 
-  const adherenceColor =
-    adherencePercent >= 70 ? "#00ff99" : adherencePercent >= 40 ? "#ffcc00" : "#ff5555";
+  const addNutritionLog = async (log) => {
+    const current = client?.nutrition || { adherence: [] };
+    const next = {
+      ...current,
+      adherence: [...(current.adherence || []), log],
+    };
+    await patchClient({ nutrition: next });
+  };
 
-  if (!user) return null;
+  // ===== UI derived =====
+  const isAdmin = user?.role === "admin";
+  const title = useMemo(() => {
+    if (!isAuthed) return "Valhalla Gym";
+    if (isAdmin) return "Valhalla Gym · Admin (usa /admin)";
+    return "Valhalla Gym · Cliente";
+  }, [isAuthed, isAdmin]);
 
-  return (
-    <div className="app">
-      <h1>Valhalla Gym</h1>
+  // =========================
+  // RENDER
+  // =========================
+  if (!isAuthed) {
+    return (
+      <div className="app">
+        <h1>{title}</h1>
 
-      <div className="dashboard">
-        <h2>🧑‍💪 Panel Cliente</h2>
-        <small className="muted">
-          Sesión: {user.name} ({user.email})
-        </small>
-
-        <div className="row" style={{ marginTop: 10 }}>
-          <button type="button" onClick={logout}>
-            Cerrar sesión
-          </button>
-        </div>
-      </div>
-
-      {!user.clientId ? (
         <div className="dashboard">
-          <h3>⚠️ No tienes cliente asignado</h3>
-          <small className="muted">Pídele al admin que te asigne a un cliente.</small>
-        </div>
-      ) : !client ? (
-        <div className="dashboard">
-          <h3>⚠️ Cliente no encontrado</h3>
-          <small className="muted">
-            Tu cuenta apunta a un clientId que no existe en localStorage.
-            <br />
-            Solución: el admin debe reasignarte o recrear el cliente.
+          <h2>Iniciar sesión</h2>
+
+          <form onSubmit={handleLogin} className="row" style={{ marginTop: 10 }}>
+            <input
+              placeholder="Usuario"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="username"
+              disabled={authLoading}
+            />
+            <input
+              placeholder="Contraseña"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              disabled={authLoading}
+            />
+            <button type="submit" disabled={authLoading}>
+              {authLoading ? "Entrando..." : "Entrar"}
+            </button>
+          </form>
+
+          {err && (
+            <div style={{ marginTop: 10, color: "#ff5555" }}>
+              {err}
+            </div>
+          )}
+
+          <small className="muted" style={{ marginTop: 12 }}>
+            API: {API_URL}
           </small>
         </div>
-      ) : (
-        <>
-          {/* ===== DASHBOARD PERSONAL ===== */}
-          <div className="dashboard">
-            <h2>📊 Tu Dashboard</h2>
+      </div>
+    );
+  }
 
-            {/* Peso actual */}
-            <div className="client-section">
-              <h3 style={{ marginTop: 0 }}>⚖️ Peso</h3>
+  // logeado
+  return (
+    <div className="app">
+      <h1>{title}</h1>
 
-              {weightNow !== null ? (
-                <>
-                  <p>
-                    Peso actual: <strong>{weightNow} kg</strong>{" "}
-                    {weightDiff !== null && (
-                      <span
-                        style={{
-                          color: weightDiff <= 0 ? "#00ff99" : "#ff5555",
-                          marginLeft: 8,
-                          fontWeight: "bold",
-                        }}
-                      >
-                        ({weightDiff > 0 ? "+" : ""}
-                        {weightDiff} kg)
-                      </span>
-                    )}
-                  </p>
-
-                  {/* Mini gráfica */}
-                  <MiniClientWeight progress={progressSorted} />
-
-                  {/* Progreso a objetivo */}
-                  {progressToGoalPercent !== null && (
-                    <>
-                      <p style={{ marginTop: 12 }}>
-                        Progreso hacia objetivo ({goalWeightNum} kg):{" "}
-                        <strong>{progressToGoalPercent}%</strong>
-                      </p>
-
-                      <div className="progress-container">
-                        <div
-                          className="progress-bar"
-                          style={{
-                            width: `${progressToGoalPercent}%`,
-                            backgroundColor:
-                              progressToGoalPercent >= 70
-                                ? "#00ff99"
-                                : progressToGoalPercent >= 40
-                                ? "#ffcc00"
-                                : "#ff5555",
-                          }}
-                        />
-                      </div>
-                    </>
-                  )}
-                </>
-              ) : (
-                <small className="muted">Aún no hay registros de peso.</small>
-              )}
-            </div>
-
-            {/* Nutrición */}
-            <div className="client-section">
-              <h3>🥗 Nutrición (últimos 14 días)</h3>
-
-              {last14.length ? (
-                <>
-                  <div className="progress-container">
-                    <div
-                      className="progress-bar"
-                      style={{
-                        width: `${adherencePercent}%`,
-                        backgroundColor: adherenceColor,
-                      }}
-                    />
-                  </div>
-
-                  <small style={{ color: adherenceColor }}>
-                    Adherencia: {adherencePercent}%
-                  </small>
-
-                  <NutritionChart adherence={adherence} />
-                </>
-              ) : (
-                <small className="muted">Aún no hay registros de nutrición.</small>
-              )}
-            </div>
-
-            {/* Rutina */}
-            <div className="client-section">
-              <h3>🏋️ Rutina actual</h3>
-              <p className="muted">{client.routine || "—"}</p>
-            </div>
+      <div className="dashboard">
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <div>
+            <small className="muted">
+              Sesión: {user?.username} ({user?.role})
+            </small>
+            <small className="muted">API: {API_URL}</small>
           </div>
 
-          {/* ===== TARJETA COMPLETA (EDITABLE PARA CLIENTE) ===== */}
-          <ul style={{ padding: 0 }}>
-            <ClientCard
-              key={client.id}
-              client={client}
-              isClientView={true}
-              toggleStatus={() => {}}
-              deleteClient={() => {}}
-              exportClientCSV={() => {}}
-              saveRoutine={saveRoutine}
-              addProgress={addProgress}
-              saveNutrition={saveNutrition}
-              addNutritionLog={addNutritionLog}
-              saveGoalWeight={saveGoalWeight}
+          <div className="row" style={{ marginTop: 0 }}>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = "/admin";
+                }}
+                disabled={busy}
+              >
+                Ir a /admin
+              </button>
+            )}
+
+            <button type="button" onClick={loadAssignedClient} disabled={loading || busy}>
+              {loading ? "Cargando..." : "Recargar"}
+            </button>
+
+            <button type="button" onClick={handleLogout} disabled={busy}>
+              Salir
+            </button>
+          </div>
+        </div>
+
+        {err && (
+          <div style={{ marginTop: 10, color: "#ff5555" }}>
+            {err}
+          </div>
+        )}
+      </div>
+
+      {/* Dashboard global (opcional): si quieres que el cliente solo vea SU info,
+          puedes pasar [client].filter(Boolean) */}
+      <Dashboard clients={client ? [client] : []} />
+
+      {!client ? (
+        <div className="dashboard">
+          <h2>⚠️ Sin cliente asignado</h2>
+          <p className="muted">
+            Tu usuario no tiene un cliente asignado aún.
+            <br />
+            Pídele al admin que te asigne en el panel.
+          </p>
+
+          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.8 }}>
+            <div>DEBUG:</div>
+            <div>user.id: <strong>{String(user?.id)}</strong></div>
+            <div>clients cargados: <strong>{clientsRaw.length}</strong></div>
+          </div>
+        </div>
+      ) : (
+        <ClientOnlyCard
+          client={client}
+          busy={busy}
+          addProgress={addProgress}
+          saveNutrition={saveNutrition}
+          addNutritionLog={addNutritionLog}
+        />
+      )}
+    </div>
+  );
+}
+
+/* =========================================================
+   UI simple SOLO para cliente (sin asignación, sin admin stuff)
+========================================================= */
+function ClientOnlyCard({ client, busy, addProgress, saveNutrition, addNutritionLog }) {
+  const [open, setOpen] = useState(null);
+
+  const [draftNutrition, setDraftNutrition] = useState(client.nutrition || { adherence: [] });
+  useEffect(() => {
+    setDraftNutrition(client.nutrition || { adherence: [] });
+  }, [client.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [progressForm, setProgressForm] = useState({ date: "", weight: "", reps: "" });
+  const [adhText, setAdhText] = useState("");
+
+  const submitProgress = () => {
+    if (!progressForm.date || !progressForm.weight) return;
+
+    const base = Array.isArray(client.progress) ? client.progress : [];
+    const next = [...base];
+    next.unshift({
+      date: progressForm.date,
+      weight: progressForm.weight,
+      reps: progressForm.reps || "",
+    });
+    addProgress(next);
+    setProgressForm({ date: "", weight: "", reps: "" });
+  };
+
+  const submitNutrition = () => {
+    saveNutrition(draftNutrition);
+  };
+
+  const submitAdherence = () => {
+    const t = adhText.trim();
+    if (!t) return;
+    const log = { date: new Date().toISOString(), note: t, completed: true };
+    addNutritionLog(log);
+    setAdhText("");
+  };
+
+  const btn = (key) => ({
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1px solid #333",
+    background: open === key ? "#141414" : "#0f0f0f",
+    color: "#fff",
+    cursor: "pointer",
+  });
+
+  return (
+    <div className="client-card">
+      <div className="client-header" style={{ justifyContent: "space-between" }}>
+        <div>
+          <strong>{client.name}</strong>
+          <small>ID: {client.id}</small>
+        </div>
+
+        <span className={client.active ? "status-active" : "status-inactive"}>
+          {client.active ? "Activo" : "Inactivo"}
+        </span>
+      </div>
+
+      <div className="row" style={{ marginTop: 12 }}>
+        <button type="button" style={btn("nutrition")} onClick={() => setOpen(open === "nutrition" ? null : "nutrition")} disabled={busy}>
+          Nutrición
+        </button>
+        <button type="button" style={btn("progress")} onClick={() => setOpen(open === "progress" ? null : "progress")} disabled={busy}>
+          Progreso
+        </button>
+      </div>
+
+      {open === "nutrition" && (
+        <div className="client-section">
+          <h3 style={{ marginTop: 0 }}>Plan de Nutrición</h3>
+
+          <div className="row">
+            <input
+              placeholder="Calorías"
+              value={draftNutrition?.calories || ""}
+              onChange={(e) => setDraftNutrition((p) => ({ ...(p || {}), calories: e.target.value }))}
+              disabled={busy}
             />
-          </ul>
-        </>
+            <input
+              placeholder="Proteína"
+              value={draftNutrition?.protein || ""}
+              onChange={(e) => setDraftNutrition((p) => ({ ...(p || {}), protein: e.target.value }))}
+              disabled={busy}
+            />
+            <input
+              placeholder="Carbs"
+              value={draftNutrition?.carbs || ""}
+              onChange={(e) => setDraftNutrition((p) => ({ ...(p || {}), carbs: e.target.value }))}
+              disabled={busy}
+            />
+            <input
+              placeholder="Grasas"
+              value={draftNutrition?.fats || ""}
+              onChange={(e) => setDraftNutrition((p) => ({ ...(p || {}), fats: e.target.value }))}
+              disabled={busy}
+            />
+          </div>
+
+          <textarea
+            placeholder="Notas"
+            value={draftNutrition?.notes || ""}
+            onChange={(e) => setDraftNutrition((p) => ({ ...(p || {}), notes: e.target.value }))}
+            style={{ width: "100%", minHeight: 90, marginTop: 10 }}
+            disabled={busy}
+          />
+
+          <div className="row" style={{ marginTop: 10 }}>
+            <button type="button" onClick={submitNutrition} disabled={busy}>
+              Guardar nutrición
+            </button>
+          </div>
+
+          <hr />
+
+          <h4 style={{ margin: "0 0 8px" }}>Bitácora</h4>
+          <div className="row">
+            <input
+              placeholder="Ej: Cumplió macros, 2L agua..."
+              value={adhText}
+              onChange={(e) => setAdhText(e.target.value)}
+              disabled={busy}
+              style={{ flex: 1 }}
+            />
+            <button type="button" onClick={submitAdherence} disabled={busy}>
+              Agregar
+            </button>
+          </div>
+
+          {(client.nutrition?.adherence || []).length > 0 && (
+            <ul style={{ marginTop: 10, paddingLeft: 16 }}>
+              {(client.nutrition?.adherence || []).slice(0, 10).map((a, idx) => (
+                <li key={idx} style={{ opacity: 0.85 }}>
+                  {a.note || JSON.stringify(a)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {open === "progress" && (
+        <div className="client-section">
+          <h3 style={{ marginTop: 0 }}>Progreso</h3>
+
+          <div className="row">
+            <input
+              type="date"
+              value={progressForm.date}
+              onChange={(e) => setProgressForm((p) => ({ ...p, date: e.target.value }))}
+              disabled={busy}
+            />
+            <input
+              placeholder="Peso"
+              value={progressForm.weight}
+              onChange={(e) => setProgressForm((p) => ({ ...p, weight: e.target.value }))}
+              disabled={busy}
+            />
+            <input
+              placeholder="Reps (opcional)"
+              value={progressForm.reps}
+              onChange={(e) => setProgressForm((p) => ({ ...p, reps: e.target.value }))}
+              disabled={busy}
+            />
+            <button type="button" onClick={submitProgress} disabled={busy}>
+              Agregar
+            </button>
+          </div>
+
+          {(client.progress || []).length > 0 && (
+            <ul className="progress-list">
+              {(client.progress || []).slice(0, 12).map((p, idx) => (
+                <li key={idx}>
+                  {p.date} — {p.weight} {p.reps ? `(${p.reps})` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );

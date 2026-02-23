@@ -1,33 +1,15 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+// src/context/AuthContext.jsx
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 const AuthContext = createContext(null);
 
+const TOKEN_KEY = "vh_token";
+
 export function AuthProvider({ children }) {
-  // 1) API URL correcto (Vercel necesita env var)
-  const envApi = import.meta.env.VITE_API_URL;
-  const [API_URL] = useState(() => {
-    let url = envApi || "http://localhost:5050";
+  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5050";
 
-    // Safety: si estás en dominio https (Vercel) y quedó localhost, corrige
-    if (typeof window !== "undefined") {
-      const isProdSite = window.location.origin.includes("vercel.app");
-      if (isProdSite && url.includes("localhost")) {
-        url = "https://valhalla-gym-api.onrender.com";
-      }
-    }
-
-    return url;
-  });
-
-  const [token, setToken] = useState(() => localStorage.getItem("vh_token") || "");
-  const [user, setUser] = useState(() => {
-    const raw = localStorage.getItem("vh_user");
-    try {
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || "");
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const isAuthed = !!token && !!user;
@@ -36,32 +18,61 @@ export function AuthProvider({ children }) {
     return token ? { Authorization: `Bearer ${token}` } : {};
   }, [token]);
 
-  // 2) Check token (suave): si falla NO te desloguea automático
+  async function safeJson(res) {
+    try {
+      return await res.json();
+    } catch {
+      return {};
+    }
+  }
+
+  // ✅ ESTE ES EL FIX CLAVE:
+  // Siempre que cambie el token, valida /me.
   useEffect(() => {
-    const check = async () => {
-      if (!token) return;
+    let cancelled = false;
 
-      try {
-        const res = await fetch(`${API_URL}/me`, { headers: { ...authHeaders } });
-
-        // si tu API no tiene /me, NO mates la sesión
-        if (res.status === 404) return;
-
-        if (!res.ok) return; // tampoco logout automático
-        const data = await res.json().catch(() => ({}));
-
-        if (data?.user) {
-          setUser(data.user);
-          localStorage.setItem("vh_user", JSON.stringify(data.user));
-        }
-      } catch {
-        // no hacer logout automático
+    async function checkMe() {
+      if (!token) {
+        setUser(null);
+        return;
       }
-    };
 
-    check();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [API_URL]);
+      setLoading(true);
+      try {
+        const res = await fetch(`${API_URL}/me`, {
+          method: "GET",
+          headers: { ...authHeaders },
+        });
+
+        const data = await safeJson(res);
+
+        if (cancelled) return;
+
+        if (!res.ok) {
+          // token inválido / expirado
+          localStorage.removeItem(TOKEN_KEY);
+          setToken("");
+          setUser(null);
+          return;
+        }
+
+        setUser(data.user || null);
+      } catch {
+        if (!cancelled) {
+          // si falla red / API, no mates token; solo marca user null temporalmente
+          setUser(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    checkMe();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [API_URL, token, authHeaders]);
 
   const login = async (username, password) => {
     setLoading(true);
@@ -72,28 +83,31 @@ export function AuthProvider({ children }) {
         body: JSON.stringify({ username, password }),
       });
 
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || "Login falló");
+      const data = await safeJson(res);
 
-      setToken(data.token);
-      setUser(data.user);
+      if (!res.ok) {
+        return { ok: false, error: data?.error || `Error ${res.status}` };
+      }
 
-      localStorage.setItem("vh_token", data.token);
-      localStorage.setItem("vh_user", JSON.stringify(data.user));
+      const nextToken = data?.token || "";
+      const nextUser = data?.user || null;
 
-      return { ok: true, user: data.user };
-    } catch (e) {
-      return { ok: false, error: e.message || "Error" };
+      localStorage.setItem(TOKEN_KEY, nextToken);
+      setToken(nextToken);
+      setUser(nextUser);
+
+      return { ok: true, user: nextUser };
+    } catch {
+      return { ok: false, error: "No se pudo conectar con el servidor" };
     } finally {
       setLoading(false);
     }
   };
 
   const logout = () => {
+    localStorage.removeItem(TOKEN_KEY);
     setToken("");
     setUser(null);
-    localStorage.removeItem("vh_token");
-    localStorage.removeItem("vh_user");
   };
 
   const value = {
@@ -101,10 +115,10 @@ export function AuthProvider({ children }) {
     token,
     user,
     isAuthed,
-    loading,
     authHeaders,
     login,
     logout,
+    loading,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -112,6 +126,6 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth debe usarse dentro de <AuthProvider>");
+  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
 }
