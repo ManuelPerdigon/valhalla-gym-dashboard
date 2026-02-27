@@ -31,13 +31,12 @@ export default function ClientApp() {
 
   // data
   const [client, setClient] = useState(null);
-  const [clientsRaw, setClientsRaw] = useState([]); // por si quieres dashboard global
+  const [clientsRaw, setClientsRaw] = useState([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const [err, setErr] = useState("");
 
-  // ===== API helper =====
   async function apiFetch(path, options = {}) {
     const res = await fetch(`${API_URL}${path}`, {
       ...options,
@@ -52,7 +51,6 @@ export default function ClientApp() {
     return { ok: res.ok, status: res.status, data };
   }
 
-  // ===== load client assigned to logged-in user =====
   const loadAssignedClient = async () => {
     if (!isAuthed || !user?.id) return;
 
@@ -72,19 +70,16 @@ export default function ClientApp() {
     const list = Array.isArray(res.data) ? res.data.map(normalizeClient) : [];
     setClientsRaw(list);
 
-    // ✅ CLAVE: el cliente “de este usuario”
     const mine = list.find((c) => String(c.assignedUserId || "") === String(user.id));
     setClient(mine || null);
   };
 
-  // cuando cambia auth, recarga
   useEffect(() => {
     if (!isAuthed) return;
     loadAssignedClient();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthed, user?.id, API_URL]);
 
-  // ===== handlers: login/logout =====
   const handleLogin = async (e) => {
     e.preventDefault();
     setErr("");
@@ -103,8 +98,6 @@ export default function ClientApp() {
       return;
     }
 
-    // ✅ tras login, carga su cliente asignado
-    // (el effect lo hará, pero esto lo hace inmediato)
     setTimeout(() => {
       loadAssignedClient();
     }, 0);
@@ -119,7 +112,7 @@ export default function ClientApp() {
     setErr("");
   };
 
-  // ===== client actions (solo progress/nutrition) =====
+  // ✅ Solo cliente: permitir progreso (pero con regla 1 por día).
   const patchClient = async (patch) => {
     if (!client?.id) return;
 
@@ -138,7 +131,6 @@ export default function ClientApp() {
     const updated = normalizeClient(res.data);
     setClient(updated);
 
-    // también actualiza la lista (por si Dashboard lo usa)
     setClientsRaw((prev) =>
       prev.map((c) => (String(c.id) === String(updated.id) ? updated : c))
     );
@@ -150,26 +142,9 @@ export default function ClientApp() {
     await patchClient({ progress: newProgressArray });
   };
 
-  const saveNutrition = async (nutritionObj) => {
-    const current = client?.nutrition || { adherence: [] };
-    await patchClient({
-      nutrition: {
-        ...current,
-        ...nutritionObj,
-      },
-    });
-  };
+  // ✅ IMPORTANTE: Cliente ya NO edita nutrición ni bitácora
+  // (solo lectura). Por eso NO hay saveNutrition / addNutritionLog.
 
-  const addNutritionLog = async (log) => {
-    const current = client?.nutrition || { adherence: [] };
-    const next = {
-      ...current,
-      adherence: [...(current.adherence || []), log],
-    };
-    await patchClient({ nutrition: next });
-  };
-
-  // ===== UI derived =====
   const isAdmin = user?.role === "admin";
   const title = useMemo(() => {
     if (!isAuthed) return "Valhalla Gym";
@@ -177,9 +152,6 @@ export default function ClientApp() {
     return "Valhalla Gym · Cliente";
   }, [isAuthed, isAdmin]);
 
-  // =========================
-  // RENDER
-  // =========================
   if (!isAuthed) {
     return (
       <div className="app">
@@ -209,11 +181,7 @@ export default function ClientApp() {
             </button>
           </form>
 
-          {err && (
-            <div style={{ marginTop: 10, color: "#ff5555" }}>
-              {err}
-            </div>
-          )}
+          {err && <div style={{ marginTop: 10, color: "#ff5555" }}>{err}</div>}
 
           <small className="muted" style={{ marginTop: 12 }}>
             API: {API_URL}
@@ -223,7 +191,6 @@ export default function ClientApp() {
     );
   }
 
-  // logeado
   return (
     <div className="app">
       <h1>{title}</h1>
@@ -260,15 +227,9 @@ export default function ClientApp() {
           </div>
         </div>
 
-        {err && (
-          <div style={{ marginTop: 10, color: "#ff5555" }}>
-            {err}
-          </div>
-        )}
+        {err && <div style={{ marginTop: 10, color: "#ff5555" }}>{err}</div>}
       </div>
 
-      {/* Dashboard global (opcional): si quieres que el cliente solo vea SU info,
-          puedes pasar [client].filter(Boolean) */}
       <Dashboard clients={client ? [client] : []} />
 
       {!client ? (
@@ -291,8 +252,7 @@ export default function ClientApp() {
           client={client}
           busy={busy}
           addProgress={addProgress}
-          saveNutrition={saveNutrition}
-          addNutritionLog={addNutritionLog}
+          setErr={setErr}
         />
       )}
     </div>
@@ -300,43 +260,41 @@ export default function ClientApp() {
 }
 
 /* =========================================================
-   UI simple SOLO para cliente (sin asignación, sin admin stuff)
+   UI simple SOLO para cliente (rutina + nutrición SOLO VER, progreso editable 1/día)
 ========================================================= */
-function ClientOnlyCard({ client, busy, addProgress, saveNutrition, addNutritionLog }) {
+function ClientOnlyCard({ client, busy, addProgress, setErr }) {
   const [open, setOpen] = useState(null);
-
-  const [draftNutrition, setDraftNutrition] = useState(client.nutrition || { adherence: [] });
-  useEffect(() => {
-    setDraftNutrition(client.nutrition || { adherence: [] });
-  }, [client.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const [progressForm, setProgressForm] = useState({ date: "", weight: "", reps: "" });
-  const [adhText, setAdhText] = useState("");
+
+  const nutrition = client?.nutrition || { adherence: [] };
+  const progress = Array.isArray(client?.progress) ? client.progress : [];
 
   const submitProgress = () => {
-    if (!progressForm.date || !progressForm.weight) return;
+    setErr("");
 
-    const base = Array.isArray(client.progress) ? client.progress : [];
-    const next = [...base];
-    next.unshift({
-      date: progressForm.date,
-      weight: progressForm.weight,
-      reps: progressForm.reps || "",
-    });
+    const date = (progressForm.date || "").trim();
+    const weight = (progressForm.weight || "").trim();
+
+    if (!date || !weight) {
+      setErr("Falta fecha y peso.");
+      return;
+    }
+
+    // ✅ Regla: 1 registro por fecha
+    const already = progress.some((p) => String(p?.date || "").slice(0, 10) === date);
+    if (already) {
+      setErr(`Ya registraste progreso para ${date}. Solo se permite 1 por día.`);
+      return;
+    }
+
+    const next = [
+      { date, weight, reps: (progressForm.reps || "").trim() },
+      ...progress,
+    ];
+
     addProgress(next);
     setProgressForm({ date: "", weight: "", reps: "" });
-  };
-
-  const submitNutrition = () => {
-    saveNutrition(draftNutrition);
-  };
-
-  const submitAdherence = () => {
-    const t = adhText.trim();
-    if (!t) return;
-    const log = { date: new Date().toISOString(), note: t, completed: true };
-    addNutritionLog(log);
-    setAdhText("");
+    setErr(`Progreso guardado para ${date} ✅`);
   };
 
   const btn = (key) => ({
@@ -362,90 +320,68 @@ function ClientOnlyCard({ client, busy, addProgress, saveNutrition, addNutrition
       </div>
 
       <div className="row" style={{ marginTop: 12 }}>
+        <button type="button" style={btn("routine")} onClick={() => setOpen(open === "routine" ? null : "routine")} disabled={busy}>
+          Rutina
+        </button>
+
         <button type="button" style={btn("nutrition")} onClick={() => setOpen(open === "nutrition" ? null : "nutrition")} disabled={busy}>
           Nutrición
         </button>
+
         <button type="button" style={btn("progress")} onClick={() => setOpen(open === "progress" ? null : "progress")} disabled={busy}>
           Progreso
         </button>
       </div>
 
+      {open === "routine" && (
+        <div className="client-section">
+          <h3 style={{ marginTop: 0 }}>Rutina (solo lectura)</h3>
+          <textarea
+            value={client.routine || ""}
+            readOnly
+            style={{ width: "100%", minHeight: 140, marginTop: 10, opacity: 0.95 }}
+          />
+        </div>
+      )}
+
       {open === "nutrition" && (
         <div className="client-section">
-          <h3 style={{ marginTop: 0 }}>Plan de Nutrición</h3>
+          <h3 style={{ marginTop: 0 }}>Plan de Nutrición (solo lectura)</h3>
 
           <div className="row">
-            <input
-              placeholder="Calorías"
-              value={draftNutrition?.calories || ""}
-              onChange={(e) => setDraftNutrition((p) => ({ ...(p || {}), calories: e.target.value }))}
-              disabled={busy}
-            />
-            <input
-              placeholder="Proteína"
-              value={draftNutrition?.protein || ""}
-              onChange={(e) => setDraftNutrition((p) => ({ ...(p || {}), protein: e.target.value }))}
-              disabled={busy}
-            />
-            <input
-              placeholder="Carbs"
-              value={draftNutrition?.carbs || ""}
-              onChange={(e) => setDraftNutrition((p) => ({ ...(p || {}), carbs: e.target.value }))}
-              disabled={busy}
-            />
-            <input
-              placeholder="Grasas"
-              value={draftNutrition?.fats || ""}
-              onChange={(e) => setDraftNutrition((p) => ({ ...(p || {}), fats: e.target.value }))}
-              disabled={busy}
-            />
+            <input placeholder="Calorías" value={nutrition?.calories || ""} disabled />
+            <input placeholder="Proteína" value={nutrition?.protein || ""} disabled />
+            <input placeholder="Carbs" value={nutrition?.carbs || ""} disabled />
+            <input placeholder="Grasas" value={nutrition?.fats || ""} disabled />
           </div>
 
           <textarea
             placeholder="Notas"
-            value={draftNutrition?.notes || ""}
-            onChange={(e) => setDraftNutrition((p) => ({ ...(p || {}), notes: e.target.value }))}
+            value={nutrition?.notes || ""}
+            disabled
             style={{ width: "100%", minHeight: 90, marginTop: 10 }}
-            disabled={busy}
           />
-
-          <div className="row" style={{ marginTop: 10 }}>
-            <button type="button" onClick={submitNutrition} disabled={busy}>
-              Guardar nutrición
-            </button>
-          </div>
 
           <hr />
 
-          <h4 style={{ margin: "0 0 8px" }}>Bitácora</h4>
-          <div className="row">
-            <input
-              placeholder="Ej: Cumplió macros, 2L agua..."
-              value={adhText}
-              onChange={(e) => setAdhText(e.target.value)}
-              disabled={busy}
-              style={{ flex: 1 }}
-            />
-            <button type="button" onClick={submitAdherence} disabled={busy}>
-              Agregar
-            </button>
-          </div>
-
-          {(client.nutrition?.adherence || []).length > 0 && (
+          <h4 style={{ margin: "0 0 8px" }}>Bitácora (solo lectura)</h4>
+          {(nutrition?.adherence || []).length > 0 ? (
             <ul style={{ marginTop: 10, paddingLeft: 16 }}>
-              {(client.nutrition?.adherence || []).slice(0, 10).map((a, idx) => (
+              {(nutrition?.adherence || []).slice(0, 12).map((a, idx) => (
                 <li key={idx} style={{ opacity: 0.85 }}>
                   {a.note || JSON.stringify(a)}
                 </li>
               ))}
             </ul>
+          ) : (
+            <small className="muted">Sin registros</small>
           )}
         </div>
       )}
 
       {open === "progress" && (
         <div className="client-section">
-          <h3 style={{ marginTop: 0 }}>Progreso</h3>
+          <h3 style={{ marginTop: 0 }}>Progreso (1 vez por día)</h3>
 
           <div className="row">
             <input
@@ -471,9 +407,9 @@ function ClientOnlyCard({ client, busy, addProgress, saveNutrition, addNutrition
             </button>
           </div>
 
-          {(client.progress || []).length > 0 && (
+          {(progress || []).length > 0 && (
             <ul className="progress-list">
-              {(client.progress || []).slice(0, 12).map((p, idx) => (
+              {(progress || []).slice(0, 12).map((p, idx) => (
                 <li key={idx}>
                   {p.date} — {p.weight} {p.reps ? `(${p.reps})` : ""}
                 </li>

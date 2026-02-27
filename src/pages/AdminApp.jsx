@@ -33,7 +33,6 @@ export default function AdminApp() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [toDelete, setToDelete] = useState(null);
 
-  // ✅ parse robusto (por si llega texto o JSON)
   function tryParseMaybeJSON(x) {
     if (x == null) return x;
 
@@ -71,8 +70,6 @@ export default function AdminApp() {
     return x;
   }
 
-  // ✅ FIX CLAVE:
-  // NO dependas de authHeaders del contexto. Usa el token REAL del localStorage SIEMPRE.
   async function apiFetch(path, options = {}) {
     const t = localStorage.getItem("vh_token") || "";
 
@@ -87,7 +84,7 @@ export default function AdminApp() {
     const res = await fetch(`${API_URL}${path}`, {
       ...options,
       headers,
-      cache: "no-store", // evita que Safari te cachee respuestas
+      cache: "no-store",
     });
 
     const rawText = await res.text().catch(() => "");
@@ -140,7 +137,6 @@ export default function AdminApp() {
     setLoading(false);
   }
 
-  // ✅ carga cuando estés logeado como admin
   useEffect(() => {
     if (!isAuthed) return;
     if (user?.role !== "admin") return;
@@ -152,7 +148,11 @@ export default function AdminApp() {
   const addClient = async () => {
     const n = name.trim();
     if (!n) {
-      showToast({ type: "warn", title: "Falta nombre", message: "Escribe el nombre del cliente." });
+      showToast({
+        type: "warn",
+        title: "Falta nombre",
+        message: "Escribe el nombre del cliente.",
+      });
       return;
     }
 
@@ -164,7 +164,11 @@ export default function AdminApp() {
     setBusy(false);
 
     if (!res.ok) {
-      showToast({ type: "error", title: "No se pudo crear cliente", message: res.data?.error || "Error" });
+      showToast({
+        type: "error",
+        title: "No se pudo crear cliente",
+        message: res.data?.error || "Error",
+      });
       return;
     }
 
@@ -186,12 +190,20 @@ export default function AdminApp() {
     setBusy(false);
 
     if (!res.ok) {
-      showToast({ type: "error", title: "No se pudo eliminar", message: res.data?.error || "Error" });
+      showToast({
+        type: "error",
+        title: "No se pudo eliminar",
+        message: res.data?.error || "Error",
+      });
       return;
     }
 
     setClients((prev) => prev.filter((c) => c.id !== toDelete.id));
-    showToast({ type: "success", title: "Cliente eliminado", message: toDelete.name });
+    showToast({
+      type: "success",
+      title: "Cliente eliminado",
+      message: toDelete.name,
+    });
     setConfirmOpen(false);
     setToDelete(null);
   };
@@ -208,7 +220,11 @@ export default function AdminApp() {
     setBusy(false);
 
     if (!res.ok) {
-      showToast({ type: "error", title: "No se pudo actualizar estado", message: res.data?.error || "Error" });
+      showToast({
+        type: "error",
+        title: "No se pudo actualizar estado",
+        message: res.data?.error || "Error",
+      });
       return;
     }
 
@@ -224,7 +240,11 @@ export default function AdminApp() {
     setBusy(false);
 
     if (!res.ok) {
-      showToast({ type: "error", title: "No se pudo guardar rutina", message: res.data?.error || "Error" });
+      showToast({
+        type: "error",
+        title: "No se pudo guardar rutina",
+        message: res.data?.error || "Error",
+      });
       return;
     }
 
@@ -240,7 +260,11 @@ export default function AdminApp() {
     setBusy(false);
 
     if (!res.ok) {
-      showToast({ type: "error", title: "No se pudo guardar progreso", message: res.data?.error || "Error" });
+      showToast({
+        type: "error",
+        title: "No se pudo guardar progreso",
+        message: res.data?.error || "Error",
+      });
       return;
     }
 
@@ -256,7 +280,11 @@ export default function AdminApp() {
     setBusy(false);
 
     if (!res.ok) {
-      showToast({ type: "error", title: "No se pudo guardar meta", message: res.data?.error || "Error" });
+      showToast({
+        type: "error",
+        title: "No se pudo guardar meta",
+        message: res.data?.error || "Error",
+      });
       return;
     }
 
@@ -280,7 +308,11 @@ export default function AdminApp() {
     setBusy(false);
 
     if (!res.ok) {
-      showToast({ type: "error", title: "No se pudo guardar nutrición", message: res.data?.error || "Error" });
+      showToast({
+        type: "error",
+        title: "No se pudo guardar nutrición",
+        message: res.data?.error || "Error",
+      });
       return;
     }
 
@@ -304,7 +336,11 @@ export default function AdminApp() {
     setBusy(false);
 
     if (!res.ok) {
-      showToast({ type: "error", title: "No se pudo guardar log", message: res.data?.error || "Error" });
+      showToast({
+        type: "error",
+        title: "No se pudo guardar log",
+        message: res.data?.error || "Error",
+      });
       return;
     }
 
@@ -349,7 +385,9 @@ export default function AdminApp() {
       return;
     }
 
-    setClients((prev) => prev.map((c) => (c.id === Number(uClientId) ? patch.data : c)));
+    setClients((prev) =>
+      prev.map((c) => (c.id === Number(uClientId) ? patch.data : c))
+    );
     await refreshUsers();
 
     setUName("");
@@ -357,7 +395,11 @@ export default function AdminApp() {
     setUPassword("");
     setUClientId("");
 
-    showToast({ type: "success", title: "Usuario creado y asignado", message: `${username} → ${patch.data.name}` });
+    showToast({
+      type: "success",
+      title: "Usuario creado y asignado",
+      message: `${username} → ${patch.data.name}`,
+    });
   };
 
   const assignClientUser = async (clientId, userIdOrNull) => {
@@ -371,7 +413,11 @@ export default function AdminApp() {
     setBusy(false);
 
     if (!res.ok) {
-      showToast({ type: "error", title: "No se pudo asignar", message: res.data?.error || "Error" });
+      showToast({
+        type: "error",
+        title: "No se pudo asignar",
+        message: res.data?.error || "Error",
+      });
       return;
     }
 
@@ -395,6 +441,13 @@ export default function AdminApp() {
   }, [clients, search, statusFilter, sortBy]);
 
   const clientUsers = useMemo(() => users.filter((u) => u.role === "client"), [users]);
+
+  // ✅ FIX: salir real desde /admin
+  const handleAdminLogout = () => {
+    logout();
+    // fuerza salir de /admin (evita quedarse “atorado”)
+    window.location.assign("/");
+  };
 
   return (
     <div className="app">
@@ -424,15 +477,15 @@ export default function AdminApp() {
         </small>
 
         <div className="row" style={{ marginTop: 10 }}>
-          <button type="button" onClick={logout} disabled={busy}>
+          <button type="button" onClick={handleAdminLogout} disabled={busy}>
             Salir
           </button>
+
           <button type="button" onClick={loadAll} disabled={loading || busy}>
             {loading ? "Cargando..." : "Recargar"}
           </button>
         </div>
 
-        {/* Debug simple visible */}
         <small className="muted">
           API: {API_URL} · users: {users.length} · clientUsers: {clientUsers.length}
         </small>
@@ -446,11 +499,31 @@ export default function AdminApp() {
           <h3 style={{ marginTop: 0 }}>Crear usuario cliente</h3>
 
           <div className="row">
-            <input placeholder="Nombre (display)" value={uName} onChange={(e) => setUName(e.target.value)} disabled={busy} />
-            <input placeholder="Username/login (ej: cliente1)" value={uUsername} onChange={(e) => setUUsername(e.target.value)} disabled={busy} />
-            <input placeholder="Password" type="password" value={uPassword} onChange={(e) => setUPassword(e.target.value)} disabled={busy} />
+            <input
+              placeholder="Nombre (display)"
+              value={uName}
+              onChange={(e) => setUName(e.target.value)}
+              disabled={busy}
+            />
+            <input
+              placeholder="Username/login (ej: cliente1)"
+              value={uUsername}
+              onChange={(e) => setUUsername(e.target.value)}
+              disabled={busy}
+            />
+            <input
+              placeholder="Password"
+              type="password"
+              value={uPassword}
+              onChange={(e) => setUPassword(e.target.value)}
+              disabled={busy}
+            />
 
-            <select value={uClientId} onChange={(e) => setUClientId(e.target.value)} disabled={busy}>
+            <select
+              value={uClientId}
+              onChange={(e) => setUClientId(e.target.value)}
+              disabled={busy}
+            >
               <option value="">Asignar a cliente…</option>
               {clients
                 .slice()
@@ -475,15 +548,28 @@ export default function AdminApp() {
 
       <div className="client-section">
         <div className="row">
-          <input placeholder="Buscar cliente..." value={search} onChange={(e) => setSearch(e.target.value)} disabled={busy} />
+          <input
+            placeholder="Buscar cliente..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            disabled={busy}
+          />
 
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} disabled={busy}>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            disabled={busy}
+          >
             <option value="all">Todos</option>
             <option value="active">Activos</option>
             <option value="inactive">Inactivos</option>
           </select>
 
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} disabled={busy}>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            disabled={busy}
+          >
             <option value="recent">Más recientes</option>
             <option value="old">Más antiguos</option>
             <option value="az">A → Z</option>
