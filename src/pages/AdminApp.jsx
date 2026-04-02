@@ -36,18 +36,15 @@ export default function AdminApp() {
   function tryParseMaybeJSON(x) {
     if (x == null) return x;
 
-    // si ya es objeto/array, listo
     if (typeof x === "object") return x;
 
-    // si es string, intenta JSON.parse
     if (typeof x === "string") {
       const s = x.trim();
       if (!s) return x;
 
-      // primer parse
       try {
         const once = JSON.parse(s);
-        // si volvió a quedar string con JSON adentro, parsea segunda vez
+
         if (typeof once === "string") {
           const t = once.trim();
           if (
@@ -61,6 +58,7 @@ export default function AdminApp() {
             }
           }
         }
+
         return once;
       } catch {
         return x;
@@ -68,6 +66,25 @@ export default function AdminApp() {
     }
 
     return x;
+  }
+
+  function parseJSONSafe(v, fallback) {
+    try {
+      if (v == null) return fallback;
+      if (typeof v === "string") return JSON.parse(v);
+      return v;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function normalizeClient(raw) {
+    if (!raw || typeof raw !== "object") return raw;
+    return {
+      ...raw,
+      nutrition: parseJSONSafe(raw.nutrition, { adherence: [] }),
+      progress: parseJSONSafe(raw.progress, []),
+    };
   }
 
   async function apiFetch(path, options = {}) {
@@ -115,7 +132,7 @@ export default function AdminApp() {
   const refreshClients = async () => {
     const res = await apiFetch("/clients", { method: "GET" });
 
-    const list = Array.isArray(res.data) ? res.data : [];
+    const list = Array.isArray(res.data) ? res.data.map(normalizeClient) : [];
     setClients(list);
 
     if (!res.ok) {
@@ -172,7 +189,7 @@ export default function AdminApp() {
       return;
     }
 
-    setClients((prev) => [res.data, ...prev]);
+    setClients((prev) => [normalizeClient(res.data), ...prev]);
     setName("");
     showToast({ type: "success", title: "Cliente creado", message: n });
   };
@@ -228,7 +245,7 @@ export default function AdminApp() {
       return;
     }
 
-    setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
+    setClients((prev) => prev.map((x) => (x.id === id ? normalizeClient(res.data) : x)));
   };
 
   const saveRoutine = async (id, routine) => {
@@ -248,7 +265,7 @@ export default function AdminApp() {
       return;
     }
 
-    setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
+    setClients((prev) => prev.map((x) => (x.id === id ? normalizeClient(res.data) : x)));
   };
 
   const addProgress = async (id, newProgressArray) => {
@@ -268,7 +285,7 @@ export default function AdminApp() {
       return;
     }
 
-    setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
+    setClients((prev) => prev.map((x) => (x.id === id ? normalizeClient(res.data) : x)));
   };
 
   const saveGoalWeight = async (id, goalWeight) => {
@@ -288,19 +305,22 @@ export default function AdminApp() {
       return;
     }
 
-    setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
+    setClients((prev) => prev.map((x) => (x.id === id ? normalizeClient(res.data) : x)));
   };
 
   const saveNutrition = async (id, nutritionData) => {
     const current = clients.find((c) => c.id === id);
     if (!current) return;
 
+    const normalized = normalizeClient(current);
+    const currentNutrition = normalized.nutrition || { adherence: [] };
+
     setBusy(true);
     const res = await apiFetch(`/clients/${id}`, {
       method: "PATCH",
       body: JSON.stringify({
         nutrition: {
-          ...(current.nutrition || {}),
+          ...currentNutrition,
           ...nutritionData,
         },
       }),
@@ -316,16 +336,22 @@ export default function AdminApp() {
       return;
     }
 
-    setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
+    setClients((prev) => prev.map((x) => (x.id === id ? normalizeClient(res.data) : x)));
   };
 
   const addNutritionLog = async (id, log) => {
     const current = clients.find((c) => c.id === id);
     if (!current) return;
 
+    const normalized = normalizeClient(current);
+    const currentNutrition = normalized.nutrition || { adherence: [] };
+    const currentAdherence = Array.isArray(currentNutrition.adherence)
+      ? currentNutrition.adherence
+      : [];
+
     const next = {
-      ...(current.nutrition || {}),
-      adherence: [...(current.nutrition?.adherence || []), log],
+      ...currentNutrition,
+      adherence: [...currentAdherence, log],
     };
 
     setBusy(true);
@@ -344,7 +370,7 @@ export default function AdminApp() {
       return;
     }
 
-    setClients((prev) => prev.map((x) => (x.id === id ? res.data : x)));
+    setClients((prev) => prev.map((x) => (x.id === id ? normalizeClient(res.data) : x)));
   };
 
   /* ===== CREAR USER + ASIGNAR ===== */
@@ -386,7 +412,7 @@ export default function AdminApp() {
     }
 
     setClients((prev) =>
-      prev.map((c) => (c.id === Number(uClientId) ? patch.data : c))
+      prev.map((c) => (c.id === Number(uClientId) ? normalizeClient(patch.data) : c))
     );
     await refreshUsers();
 
@@ -421,7 +447,92 @@ export default function AdminApp() {
       return;
     }
 
-    setClients((prev) => prev.map((c) => (c.id === clientId ? res.data : c)));
+    setClients((prev) => prev.map((c) => (c.id === clientId ? normalizeClient(res.data) : c)));
+  };
+
+  /* ===== EXPORT CSV ===== */
+  const exportClientCSV = (clientId) => {
+    const c = clients.find((x) => x.id === clientId);
+    if (!c) {
+      showToast({
+        type: "error",
+        title: "No encontrado",
+        message: "Ese cliente no existe en la lista.",
+      });
+      return;
+    }
+
+    const cc = normalizeClient(c);
+    const nutrition = cc.nutrition || {};
+    const progress = Array.isArray(cc.progress) ? cc.progress : [];
+    const adherence = Array.isArray(nutrition.adherence) ? nutrition.adherence : [];
+
+    const headers = [
+      "id",
+      "name",
+      "active",
+      "assignedUserId",
+      "goalWeight",
+      "routine",
+      "nutrition_calories",
+      "nutrition_protein",
+      "nutrition_carbs",
+      "nutrition_fats",
+      "nutrition_notes",
+      "progress_json",
+      "adherence_json",
+    ];
+
+    const row = [
+      cc.id,
+      cc.name,
+      cc.active ? 1 : 0,
+      cc.assignedUserId || "",
+      cc.goalWeight || "",
+      cc.routine || "",
+      nutrition.calories || "",
+      nutrition.protein || "",
+      nutrition.carbs || "",
+      nutrition.fats || "",
+      nutrition.notes || "",
+      JSON.stringify(progress),
+      JSON.stringify(adherence),
+    ];
+
+    const csvEscape = (value) => {
+      const s = value == null ? "" : String(value);
+      if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    };
+
+    const csvContent =
+      "\uFEFF" +
+      headers.map(csvEscape).join(",") +
+      "\n" +
+      row.map(csvEscape).join(",") +
+      "\n";
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `client-${cc.id}-${(cc.name || "valhalla").replace(/\s+/g, "_")}.csv`;
+    link.style.display = "none";
+
+    document.body.appendChild(link);
+    link.click();
+
+    setTimeout(() => {
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    }, 100);
+
+    showToast({
+      type: "success",
+      title: "CSV descargado",
+      message: `Cliente ${cc.name}`,
+    });
   };
 
   const visibleClients = useMemo(() => {
@@ -442,10 +553,8 @@ export default function AdminApp() {
 
   const clientUsers = useMemo(() => users.filter((u) => u.role === "client"), [users]);
 
-  // ✅ FIX: salir real desde /admin
   const handleAdminLogout = () => {
     logout();
-    // fuerza salir de /admin (evita quedarse “atorado”)
     window.location.assign("/");
   };
 
@@ -491,7 +600,6 @@ export default function AdminApp() {
         </small>
       </div>
 
-      {/* ===== USUARIOS ===== */}
       <div className="dashboard">
         <h2>👥 Usuarios</h2>
 
@@ -615,7 +723,7 @@ export default function AdminApp() {
               saveNutrition={saveNutrition}
               addNutritionLog={addNutritionLog}
               saveGoalWeight={saveGoalWeight}
-              exportClientCSV={() => {}}
+              exportClientCSV={exportClientCSV}
             />
           ))
         )}
