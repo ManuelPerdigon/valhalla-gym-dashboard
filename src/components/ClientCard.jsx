@@ -652,6 +652,9 @@ export default function ClientCard({
               <div>
                 <label style={labelStyle}>Peso</label>
                 <input
+                  type="number"
+                  step="0.1"
+                  min="0"
                   placeholder="Peso"
                   value={progressForm.weight}
                   onChange={(e) =>
@@ -770,6 +773,9 @@ export default function ClientCard({
               <div>
                 <label style={labelStyle}>Monto</label>
                 <input
+                  type="number"
+                  step="0.01"
+                  min="0"
                   placeholder="Ej: 450"
                   value={draftMembership?.amount || ""}
                   onChange={(e) => setMembershipField("amount", e.target.value)}

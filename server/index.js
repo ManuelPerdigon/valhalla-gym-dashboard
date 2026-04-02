@@ -87,7 +87,7 @@ app.get("/", (_req, res) => {
     ok: true,
     service: "Valhalla Gym API",
     health: "/health",
-    build: "index-v5-membership",
+    build: "index-v6-initial-weight",
   });
 });
 
@@ -236,11 +236,10 @@ app.get("/clients", authRequired, (_req, res) => {
 
 app.post("/clients", authRequired, adminOnly, (req, res) => {
   try {
-    const { name } = req.body || {};
+    const { name, initialWeight, initialDate } = req.body || {};
     if (!name?.trim()) return res.status(400).json({ error: "Nombre requerido" });
 
     const emptyNutrition = JSON.stringify({ adherence: [] });
-    const emptyProgress = JSON.stringify([]);
     const emptyMembership = JSON.stringify({
       type: "",
       start: "",
@@ -248,6 +247,18 @@ app.post("/clients", authRequired, adminOnly, (req, res) => {
       amount: "",
       paymentStatus: "pending",
     });
+
+    let initialProgress = [];
+
+    if (String(initialWeight || "").trim()) {
+      initialProgress = [
+        {
+          date: String(initialDate || "").trim() || new Date().toISOString().slice(0, 10),
+          weight: String(initialWeight).trim(),
+          reps: "",
+        },
+      ];
+    }
 
     const info = db.prepare(`
       INSERT INTO clients (
@@ -261,7 +272,12 @@ app.post("/clients", authRequired, adminOnly, (req, res) => {
         membership
       )
       VALUES (?, 1, '', '', NULL, ?, ?, ?)
-    `).run(name.trim(), emptyNutrition, emptyProgress, emptyMembership);
+    `).run(
+      name.trim(),
+      emptyNutrition,
+      JSON.stringify(initialProgress),
+      emptyMembership
+    );
 
     const row = db.prepare("SELECT * FROM clients WHERE id = ?").get(info.lastInsertRowid);
     res.json(rowToClient(row));

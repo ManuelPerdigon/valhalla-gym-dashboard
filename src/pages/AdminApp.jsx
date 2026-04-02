@@ -20,6 +20,10 @@ export default function AdminApp() {
 
   const [clients, setClients] = useState([]);
   const [name, setName] = useState("");
+  const [initialWeight, setInitialWeight] = useState("");
+  const [initialDate, setInitialDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -184,7 +188,11 @@ export default function AdminApp() {
     setBusy(true);
     const res = await apiFetch("/clients", {
       method: "POST",
-      body: JSON.stringify({ name: n }),
+      body: JSON.stringify({
+        name: n,
+        initialWeight,
+        initialDate,
+      }),
     });
     setBusy(false);
 
@@ -199,7 +207,14 @@ export default function AdminApp() {
 
     setClients((prev) => [normalizeClient(res.data), ...prev]);
     setName("");
-    showToast({ type: "success", title: "Cliente creado", message: n });
+    setInitialWeight("");
+    setInitialDate(new Date().toISOString().slice(0, 10));
+
+    showToast({
+      type: "success",
+      title: "Cliente creado",
+      message: n,
+    });
   };
 
   const requestDeleteClient = (client) => {
@@ -1274,7 +1289,16 @@ export default function AdminApp() {
           <p className="muted admin-panel-copy">
             Crea un nuevo perfil para comenzar a gestionar su rutina, progreso, nutrición y membresía.
           </p>
-          <ClientForm name={name} setName={setName} addClient={addClient} />
+
+          <ClientForm
+            name={name}
+            setName={setName}
+            initialWeight={initialWeight}
+            setInitialWeight={setInitialWeight}
+            initialDate={initialDate}
+            setInitialDate={setInitialDate}
+            addClient={addClient}
+          />
         </div>
 
         <ul style={{ padding: 0 }}>
