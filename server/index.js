@@ -11,7 +11,7 @@ const app = express();
 const PORT = process.env.PORT || 5050;
 
 /* ======================
-   JSON + RAW BODY (por si Render manda raro)
+   JSON + RAW BODY
 ====================== */
 app.use(
   express.json({
@@ -69,6 +69,13 @@ function rowToClient(row) {
     ...row,
     nutrition: parseJSONSafe(row.nutrition, { adherence: [] }),
     progress: parseJSONSafe(row.progress, []),
+    membership: parseJSONSafe(row.membership, {
+      type: "",
+      start: "",
+      end: "",
+      amount: "",
+      paymentStatus: "pending",
+    }),
   };
 }
 
@@ -80,7 +87,7 @@ app.get("/", (_req, res) => {
     ok: true,
     service: "Valhalla Gym API",
     health: "/health",
-    build: "index-v4-ensure-admin",
+    build: "index-v5-membership",
   });
 });
 
@@ -89,7 +96,7 @@ app.get("/health", (_req, res) => {
 });
 
 /* ======================
-   BOOTSTRAP: ASEGURAR ADMIN SIEMPRE
+   BOOTSTRAP: ASEGURAR ADMIN
 ====================== */
 function ensureAdmin() {
   const adminUser = (process.env.ADMIN_USER || "admin").trim() || "admin";
@@ -234,11 +241,27 @@ app.post("/clients", authRequired, adminOnly, (req, res) => {
 
     const emptyNutrition = JSON.stringify({ adherence: [] });
     const emptyProgress = JSON.stringify([]);
+    const emptyMembership = JSON.stringify({
+      type: "",
+      start: "",
+      end: "",
+      amount: "",
+      paymentStatus: "pending",
+    });
 
     const info = db.prepare(`
-      INSERT INTO clients (name, active, routine, goalWeight, assignedUserId, nutrition, progress)
-      VALUES (?, 1, '', '', NULL, ?, ?)
-    `).run(name.trim(), emptyNutrition, emptyProgress);
+      INSERT INTO clients (
+        name,
+        active,
+        routine,
+        goalWeight,
+        assignedUserId,
+        nutrition,
+        progress,
+        membership
+      )
+      VALUES (?, 1, '', '', NULL, ?, ?, ?)
+    `).run(name.trim(), emptyNutrition, emptyProgress, emptyMembership);
 
     const row = db.prepare("SELECT * FROM clients WHERE id = ?").get(info.lastInsertRowid);
     res.json(rowToClient(row));
@@ -263,6 +286,9 @@ app.patch("/clients/:id", authRequired, (req, res) => {
     if (Array.isArray(next.progress) || typeof next.progress === "object") {
       next.progress = JSON.stringify(next.progress);
     }
+    if (typeof next.membership === "object") {
+      next.membership = JSON.stringify(next.membership);
+    }
 
     if (req.user.role === "admin" && "assignedUserId" in patch) {
       let newUserId = patch.assignedUserId;
@@ -278,7 +304,9 @@ app.patch("/clients/:id", authRequired, (req, res) => {
           .get(newUserId, id);
 
         if (taken) {
-          return res.status(409).json({ error: `Ese usuario ya está asignado al cliente: ${taken.name}` });
+          return res.status(409).json({
+            error: `Ese usuario ya está asignado al cliente: ${taken.name}`,
+          });
         }
       }
       next.assignedUserId = newUserId || null;
@@ -292,7 +320,8 @@ app.patch("/clients/:id", authRequired, (req, res) => {
         goalWeight = ?,
         assignedUserId = ?,
         nutrition = ?,
-        progress = ?
+        progress = ?,
+        membership = ?
       WHERE id = ?
     `).run(
       next.name,
@@ -302,6 +331,14 @@ app.patch("/clients/:id", authRequired, (req, res) => {
       next.assignedUserId ?? null,
       next.nutrition || JSON.stringify({ adherence: [] }),
       next.progress || JSON.stringify([]),
+      next.membership ||
+        JSON.stringify({
+          type: "",
+          start: "",
+          end: "",
+          amount: "",
+          paymentStatus: "pending",
+        }),
       id
     );
 

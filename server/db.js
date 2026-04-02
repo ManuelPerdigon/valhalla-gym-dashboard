@@ -44,4 +44,16 @@ CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_clients_assignedUserId ON clients(assignedUserId);
 `);
 
+// ✅ ASEGURAR COLUMNA membership EN BDS VIEJAS
+try {
+  db.prepare(`
+    ALTER TABLE clients
+    ADD COLUMN membership TEXT DEFAULT '{"type":"","start":"","end":"","amount":"","paymentStatus":"pending"}'
+  `).run();
+
+  console.log("✅ Columna membership agregada");
+} catch (e) {
+  // si ya existe, no pasa nada
+}
+
 export default db;

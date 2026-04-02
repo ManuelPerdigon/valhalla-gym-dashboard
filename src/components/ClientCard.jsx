@@ -3,6 +3,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useDebouncedEffect } from "../hooks/useDebouncedEffect";
 import { useToast } from "./ToastProvider";
 
+const EMPTY_MEMBERSHIP = {
+  type: "",
+  start: "",
+  end: "",
+  amount: "",
+  paymentStatus: "pending",
+};
+
 export default function ClientCard({
   client,
 
@@ -13,7 +21,9 @@ export default function ClientCard({
   saveNutrition,
   addNutritionLog,
   saveGoalWeight,
+  saveMembership,
   exportClientCSV,
+  exportClientPDF,
 
   users = [],
   onAssignUser,
@@ -26,10 +36,15 @@ export default function ClientCard({
   const [draftRoutine, setDraftRoutine] = useState(client.routine || "");
   const [draftGoal, setDraftGoal] = useState(client.goalWeight || "");
   const [draftNutrition, setDraftNutrition] = useState(client.nutrition || {});
+  const [draftMembership, setDraftMembership] = useState(
+    client.membership || EMPTY_MEMBERSHIP
+  );
+
   const [saveState, setSaveState] = useState({
     routine: "idle",
     goal: "idle",
     nutrition: "idle",
+    membership: "idle",
   });
 
   const didMount = useRef(false);
@@ -42,7 +57,13 @@ export default function ClientCard({
     setDraftRoutine(client.routine || "");
     setDraftGoal(client.goalWeight || "");
     setDraftNutrition(client.nutrition || {});
-    setSaveState({ routine: "idle", goal: "idle", nutrition: "idle" });
+    setDraftMembership(client.membership || EMPTY_MEMBERSHIP);
+    setSaveState({
+      routine: "idle",
+      goal: "idle",
+      nutrition: "idle",
+      membership: "idle",
+    });
 
     setAssignValue(client.assignedUserId ? String(client.assignedUserId) : "");
     setOpenSection(null);
@@ -58,7 +79,8 @@ export default function ClientCard({
     };
     const s = map[state];
     if (!s) return null;
-    return <span style={{ fontSize: 12, opacity: s.opacity, marginLeft: 10 }}>{s.txt}</span>;
+
+    return <span style={{ fontSize: 12, opacity: s.opacity }}>{s.txt}</span>;
   };
 
   useDebouncedEffect(
@@ -117,12 +139,38 @@ export default function ClientCard({
     900
   );
 
+  useDebouncedEffect(
+    async () => {
+      if (saveState.membership !== "dirty") return;
+      try {
+        setSaveState((p) => ({ ...p, membership: "saving" }));
+        await saveMembership(client.id, draftMembership);
+        setSaveState((p) => ({ ...p, membership: "saved" }));
+        showToast("Membresía guardada ✅");
+      } catch {
+        setSaveState((p) => ({ ...p, membership: "error" }));
+        showToast("No se pudo guardar la membresía ❌", "error");
+      }
+    },
+    [draftMembership, saveState.membership, client.id],
+    900
+  );
+
   const setNutField = (key, val) => {
     setDraftNutrition((prev) => ({ ...(prev || {}), [key]: val }));
     setSaveState((p) => ({ ...p, nutrition: "dirty" }));
   };
 
-  const [progressForm, setProgressForm] = useState({ date: "", weight: "", reps: "" });
+  const setMembershipField = (key, val) => {
+    setDraftMembership((prev) => ({ ...(prev || EMPTY_MEMBERSHIP), [key]: val }));
+    setSaveState((p) => ({ ...p, membership: "dirty" }));
+  };
+
+  const [progressForm, setProgressForm] = useState({
+    date: "",
+    weight: "",
+    reps: "",
+  });
 
   const submitProgress = () => {
     if (!progressForm.date || !progressForm.weight) {
@@ -150,6 +198,7 @@ export default function ClientCard({
       showToast("Escribe algo para la bitácora", "warning");
       return;
     }
+
     const log = { date: new Date().toISOString(), note: t, completed: true };
     addNutritionLog(client.id, log);
     setAdhText("");
@@ -158,26 +207,40 @@ export default function ClientCard({
 
   const isOpen = (key) => openSection === key;
 
-  const sectionBtnStyle = (active) => ({
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid #333",
-    background: active ? "#141414" : "#0f0f0f",
+  const tabStyle = (active) => ({
+    padding: "10px 14px",
+    borderRadius: 12,
+    border: active ? "1px solid #444" : "1px solid #2a2a2a",
+    background: active ? "linear-gradient(180deg, #1a1a1a, #101010)" : "#0d0d0d",
     color: "#fff",
     cursor: "pointer",
+    fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    boxShadow: active ? "0 6px 18px rgba(0,0,0,0.35)" : "none",
   });
 
-  const headerPillStyle = useMemo(
-    () => ({
-      fontSize: 12,
-      padding: "4px 10px",
-      borderRadius: 999,
-      border: "1px solid #333",
-      background: client.active ? "rgba(0,255,153,0.08)" : "rgba(255,85,85,0.08)",
-      color: client.active ? "#00ff99" : "#ff5555",
-    }),
-    [client.active]
-  );
+  const blockStyle = {
+    borderTop: "1px solid #222",
+    paddingTop: 14,
+    marginTop: 10,
+  };
+
+  const panelStyle = {
+    background: "linear-gradient(180deg, #121212, #0c0c0c)",
+    border: "1px solid #252525",
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 12,
+  };
+
+  const labelStyle = {
+    fontSize: 12,
+    opacity: 0.8,
+    marginBottom: 6,
+    display: "block",
+  };
 
   const assignedUser = useMemo(() => {
     if (!client.assignedUserId) return null;
@@ -185,7 +248,7 @@ export default function ClientCard({
   }, [client.assignedUserId, users]);
 
   const handleAssignChange = async (e) => {
-    const val = e.target.value; // "" | userId
+    const val = e.target.value;
     setAssignValue(val);
 
     if (!onAssignUser) {
@@ -203,67 +266,185 @@ export default function ClientCard({
     }
   };
 
+  const paymentStatusText =
+    draftMembership?.paymentStatus === "paid"
+      ? "Pagado"
+      : draftMembership?.paymentStatus === "overdue"
+      ? "Vencido"
+      : "Pendiente";
+
   return (
     <li
+      className="client-card"
       style={{
         listStyle: "none",
-        marginBottom: 14,
-        border: "1px solid #222",
-        borderRadius: 14,
-        padding: 14,
-        background: "#0b0b0b",
+        marginBottom: 18,
+        border: "1px solid #242424",
+        borderRadius: 18,
+        padding: 18,
+        background: "linear-gradient(180deg, #121212, #0b0b0b)",
       }}
     >
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <h3 style={{ margin: 0 }}>{client.name}</h3>
-            <span style={headerPillStyle}>{client.active ? "Activo" : "Inactivo"}</span>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 16,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+              marginBottom: 8,
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: 22, letterSpacing: 0.3 }}>
+              {client.name}
+            </h3>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 6, flexWrap: "wrap" }}>
-              <small style={{ opacity: 0.75 }}>Asignado:</small>
-              <strong style={{ fontSize: 12 }}>
-                {assignedUser ? assignedUser.username : "— Sin asignar —"}
-              </strong>
-
-              {/* ✅ Importante para Safari: NO le meto estilos oscuros al select */}
-              <select value={assignValue} onChange={handleAssignChange} disabled={busy}>
-                <option value="">— Sin asignar —</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.username}
-                  </option>
-                ))}
-              </select>
-
-              <small style={{ opacity: 0.65, fontSize: 12 }}>
-                users: {users.length}
-              </small>
-            </div>
+            <span
+              style={{
+                fontSize: 12,
+                padding: "5px 10px",
+                borderRadius: 999,
+                border: "1px solid #333",
+                background: client.active
+                  ? "rgba(0,255,153,0.08)"
+                  : "rgba(255,85,85,0.08)",
+                color: client.active ? "#00ff99" : "#ff5555",
+                fontWeight: 700,
+              }}
+            >
+              {client.active ? "Activo" : "Inactivo"}
+            </span>
           </div>
 
-          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75 }}>
-            ID: {client.id}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+              gap: 10,
+            }}
+          >
+            <div
+              style={{
+                background: "#0f0f0f",
+                border: "1px solid #222",
+                borderRadius: 12,
+                padding: "10px 12px",
+              }}
+            >
+              <small style={{ opacity: 0.7, display: "block" }}>ID Cliente</small>
+              <strong>{client.id}</strong>
+            </div>
+
+            <div
+              style={{
+                background: "#0f0f0f",
+                border: "1px solid #222",
+                borderRadius: 12,
+                padding: "10px 12px",
+              }}
+            >
+              <small style={{ opacity: 0.7, display: "block" }}>Usuario asignado</small>
+              <strong>{assignedUser ? assignedUser.username : "— Sin asignar —"}</strong>
+            </div>
+
+            <div
+              style={{
+                background: "#0f0f0f",
+                border: "1px solid #222",
+                borderRadius: 12,
+                padding: "10px 12px",
+              }}
+            >
+              <small style={{ opacity: 0.7, display: "block" }}>Membresía</small>
+              <strong>{draftMembership?.type || "Sin definir"}</strong>
+            </div>
+
+            <div
+              style={{
+                background: "#0f0f0f",
+                border: "1px solid #222",
+                borderRadius: 12,
+                padding: "10px 12px",
+              }}
+            >
+              <small style={{ opacity: 0.7, display: "block" }}>Pago</small>
+              <strong>{paymentStatusText}</strong>
+            </div>
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+            alignItems: "flex-start",
+          }}
+        >
           <button type="button" onClick={() => exportClientCSV(client.id)} disabled={busy}>
             Exportar CSV
           </button>
+
+          <button type="button" onClick={() => exportClientPDF(client.id)} disabled={busy}>
+            Exportar PDF
+          </button>
+
           <button type="button" onClick={() => toggleStatus(client.id)} disabled={busy}>
             {client.active ? "Desactivar" : "Activar"}
           </button>
+
           <button type="button" onClick={() => deleteClient(client.id)} disabled={busy}>
             🗑️ Eliminar
           </button>
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+      <div style={panelStyle}>
+        <label style={labelStyle}>Asignación de usuario cliente</label>
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <select value={assignValue} onChange={handleAssignChange} disabled={busy}>
+            <option value="">— Sin asignar —</option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.username}
+              </option>
+            ))}
+          </select>
+
+          <small style={{ opacity: 0.65 }}>
+            Usuarios cliente disponibles: {users.length}
+          </small>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+          marginTop: 14,
+          flexWrap: "wrap",
+        }}
+      >
         <button
           type="button"
-          style={sectionBtnStyle(isOpen("routine"))}
+          style={tabStyle(isOpen("routine"))}
           onClick={() => setOpenSection(isOpen("routine") ? null : "routine")}
           disabled={busy}
         >
@@ -272,7 +453,7 @@ export default function ClientCard({
 
         <button
           type="button"
-          style={sectionBtnStyle(isOpen("nutrition"))}
+          style={tabStyle(isOpen("nutrition"))}
           onClick={() => setOpenSection(isOpen("nutrition") ? null : "nutrition")}
           disabled={busy}
         >
@@ -281,7 +462,7 @@ export default function ClientCard({
 
         <button
           type="button"
-          style={sectionBtnStyle(isOpen("progress"))}
+          style={tabStyle(isOpen("progress"))}
           onClick={() => setOpenSection(isOpen("progress") ? null : "progress")}
           disabled={busy}
         >
@@ -290,18 +471,37 @@ export default function ClientCard({
 
         <button
           type="button"
-          style={sectionBtnStyle(isOpen("goal"))}
+          style={tabStyle(isOpen("goal"))}
           onClick={() => setOpenSection(isOpen("goal") ? null : "goal")}
           disabled={busy}
         >
           Meta {renderSaveBadge(saveState.goal)}
         </button>
+
+        <button
+          type="button"
+          style={tabStyle(isOpen("membership"))}
+          onClick={() => setOpenSection(isOpen("membership") ? null : "membership")}
+          disabled={busy}
+        >
+          Membresía {renderSaveBadge(saveState.membership)}
+        </button>
       </div>
 
       <div style={{ marginTop: 12 }}>
         {isOpen("routine") && (
-          <div style={{ borderTop: "1px solid #222", paddingTop: 12 }}>
-            <h4 style={{ margin: 0 }}>Rutina</h4>
+          <div style={blockStyle}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 10,
+              }}
+            >
+              <h4 style={{ margin: 0 }}>Rutina</h4>
+              {renderSaveBadge(saveState.routine)}
+            </div>
 
             <textarea
               value={draftRoutine}
@@ -312,9 +512,8 @@ export default function ClientCard({
               placeholder="Escribe la rutina aquí..."
               style={{
                 width: "100%",
-                minHeight: 140,
-                marginTop: 10,
-                padding: 12,
+                minHeight: 160,
+                padding: 14,
                 borderRadius: 12,
                 border: "1px solid #333",
                 background: "#0f0f0f",
@@ -322,67 +521,103 @@ export default function ClientCard({
               }}
               disabled={busy}
             />
+
+            <small style={{ display: "block", marginTop: 8, opacity: 0.7 }}>
+              Guardado automático.
+            </small>
           </div>
         )}
 
         {isOpen("nutrition") && (
-          <div style={{ borderTop: "1px solid #222", paddingTop: 12 }}>
-            <h4 style={{ margin: 0 }}>Plan de Nutrición</h4>
+          <div style={blockStyle}>
+            <h4 style={{ margin: "0 0 10px" }}>Plan de Nutrición</h4>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10, marginTop: 10 }}>
-              <input
-                placeholder="Calorías"
-                value={draftNutrition?.calories || ""}
-                onChange={(e) => setNutField("calories", e.target.value)}
-                disabled={busy}
-              />
-              <input
-                placeholder="Proteína"
-                value={draftNutrition?.protein || ""}
-                onChange={(e) => setNutField("protein", e.target.value)}
-                disabled={busy}
-              />
-              <input
-                placeholder="Carbs"
-                value={draftNutrition?.carbs || ""}
-                onChange={(e) => setNutField("carbs", e.target.value)}
-                disabled={busy}
-              />
-              <input
-                placeholder="Grasas"
-                value={draftNutrition?.fats || ""}
-                onChange={(e) => setNutField("fats", e.target.value)}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                gap: 10,
+              }}
+            >
+              <div>
+                <label style={labelStyle}>Calorías</label>
+                <input
+                  placeholder="Calorías"
+                  value={draftNutrition?.calories || ""}
+                  onChange={(e) => setNutField("calories", e.target.value)}
+                  disabled={busy}
+                />
+              </div>
+
+              <div>
+                <label style={labelStyle}>Proteína</label>
+                <input
+                  placeholder="Proteína"
+                  value={draftNutrition?.protein || ""}
+                  onChange={(e) => setNutField("protein", e.target.value)}
+                  disabled={busy}
+                />
+              </div>
+
+              <div>
+                <label style={labelStyle}>Carbs</label>
+                <input
+                  placeholder="Carbs"
+                  value={draftNutrition?.carbs || ""}
+                  onChange={(e) => setNutField("carbs", e.target.value)}
+                  disabled={busy}
+                />
+              </div>
+
+              <div>
+                <label style={labelStyle}>Grasas</label>
+                <input
+                  placeholder="Grasas"
+                  value={draftNutrition?.fats || ""}
+                  onChange={(e) => setNutField("fats", e.target.value)}
+                  disabled={busy}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <label style={labelStyle}>Notas</label>
+              <textarea
+                placeholder="Notas"
+                value={draftNutrition?.notes || ""}
+                onChange={(e) => setNutField("notes", e.target.value)}
+                style={{
+                  width: "100%",
+                  minHeight: 100,
+                  padding: 14,
+                  borderRadius: 12,
+                  border: "1px solid #333",
+                  background: "#0f0f0f",
+                  color: "#fff",
+                }}
                 disabled={busy}
               />
             </div>
 
-            <textarea
-              placeholder="Notas"
-              value={draftNutrition?.notes || ""}
-              onChange={(e) => setNutField("notes", e.target.value)}
-              style={{
-                width: "100%",
-                minHeight: 90,
-                marginTop: 10,
-                padding: 12,
-                borderRadius: 12,
-                border: "1px solid #333",
-                background: "#0f0f0f",
-                color: "#fff",
-              }}
-              disabled={busy}
-            />
+            <div style={{ marginTop: 14 }}>
+              <h5 style={{ margin: "0 0 8px" }}>Adherencia / Bitácora</h5>
 
-            <div style={{ marginTop: 10 }}>
-              <h5 style={{ margin: "10px 0 6px" }}>Adherencia / Bitácora</h5>
-              <div style={{ display: "flex", gap: 8 }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                }}
+              >
                 <input
                   placeholder="Ej: Cumplió macros, 2L agua, etc."
                   value={adhText}
                   onChange={(e) => setAdhText(e.target.value)}
-                  style={{ flex: 1 }}
+                  style={{ flex: 1, minWidth: 220 }}
                   disabled={busy}
                 />
+
                 <button type="button" onClick={submitAdherence} disabled={busy}>
                   Agregar
                 </button>
@@ -392,31 +627,54 @@ export default function ClientCard({
         )}
 
         {isOpen("progress") && (
-          <div style={{ borderTop: "1px solid #222", paddingTop: 12 }}>
-            <h4 style={{ margin: 0 }}>Progreso</h4>
+          <div style={blockStyle}>
+            <h4 style={{ margin: "0 0 10px" }}>Progreso</h4>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, marginTop: 10 }}>
-              <input
-                type="date"
-                value={progressForm.date}
-                onChange={(e) => setProgressForm((p) => ({ ...p, date: e.target.value }))}
-                disabled={busy}
-              />
-              <input
-                placeholder="Peso"
-                value={progressForm.weight}
-                onChange={(e) => setProgressForm((p) => ({ ...p, weight: e.target.value }))}
-                disabled={busy}
-              />
-              <input
-                placeholder="Reps (opcional)"
-                value={progressForm.reps}
-                onChange={(e) => setProgressForm((p) => ({ ...p, reps: e.target.value }))}
-                disabled={busy}
-              />
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: 10,
+              }}
+            >
+              <div>
+                <label style={labelStyle}>Fecha</label>
+                <input
+                  type="date"
+                  value={progressForm.date}
+                  onChange={(e) =>
+                    setProgressForm((p) => ({ ...p, date: e.target.value }))
+                  }
+                  disabled={busy}
+                />
+              </div>
+
+              <div>
+                <label style={labelStyle}>Peso</label>
+                <input
+                  placeholder="Peso"
+                  value={progressForm.weight}
+                  onChange={(e) =>
+                    setProgressForm((p) => ({ ...p, weight: e.target.value }))
+                  }
+                  disabled={busy}
+                />
+              </div>
+
+              <div>
+                <label style={labelStyle}>Reps (opcional)</label>
+                <input
+                  placeholder="Reps (opcional)"
+                  value={progressForm.reps}
+                  onChange={(e) =>
+                    setProgressForm((p) => ({ ...p, reps: e.target.value }))
+                  }
+                  disabled={busy}
+                />
+              </div>
             </div>
 
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: 12 }}>
               <button type="button" onClick={submitProgress} disabled={busy}>
                 Agregar progreso
               </button>
@@ -425,8 +683,8 @@ export default function ClientCard({
         )}
 
         {isOpen("goal") && (
-          <div style={{ borderTop: "1px solid #222", paddingTop: 12 }}>
-            <h4 style={{ margin: 0 }}>Meta de peso</h4>
+          <div style={blockStyle}>
+            <h4 style={{ margin: "0 0 10px" }}>Meta de peso</h4>
 
             <input
               placeholder="Ej: 78 kg"
@@ -437,8 +695,7 @@ export default function ClientCard({
               }}
               style={{
                 width: "100%",
-                marginTop: 10,
-                padding: 12,
+                padding: 14,
                 borderRadius: 12,
                 border: "1px solid #333",
                 background: "#0f0f0f",
@@ -446,6 +703,97 @@ export default function ClientCard({
               }}
               disabled={busy}
             />
+
+            <small style={{ display: "block", marginTop: 8, opacity: 0.7 }}>
+              Guardado automático.
+            </small>
+          </div>
+        )}
+
+        {isOpen("membership") && (
+          <div style={blockStyle}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 10,
+              }}
+            >
+              <h4 style={{ margin: 0 }}>Membresía</h4>
+              {renderSaveBadge(saveState.membership)}
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: 10,
+              }}
+            >
+              <div>
+                <label style={labelStyle}>Tipo de plan</label>
+                <select
+                  value={draftMembership?.type || ""}
+                  onChange={(e) => setMembershipField("type", e.target.value)}
+                  disabled={busy}
+                >
+                  <option value="">Selecciona plan…</option>
+                  <option value="Mensual">Mensual</option>
+                  <option value="Trimestral">Trimestral</option>
+                  <option value="Semestral">Semestral</option>
+                  <option value="Anual">Anual</option>
+                  <option value="Personalizado">Personalizado</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={labelStyle}>Inicio</label>
+                <input
+                  type="date"
+                  value={draftMembership?.start || ""}
+                  onChange={(e) => setMembershipField("start", e.target.value)}
+                  disabled={busy}
+                />
+              </div>
+
+              <div>
+                <label style={labelStyle}>Vencimiento</label>
+                <input
+                  type="date"
+                  value={draftMembership?.end || ""}
+                  onChange={(e) => setMembershipField("end", e.target.value)}
+                  disabled={busy}
+                />
+              </div>
+
+              <div>
+                <label style={labelStyle}>Monto</label>
+                <input
+                  placeholder="Ej: 450"
+                  value={draftMembership?.amount || ""}
+                  onChange={(e) => setMembershipField("amount", e.target.value)}
+                  disabled={busy}
+                />
+              </div>
+
+              <div>
+                <label style={labelStyle}>Estado de pago</label>
+                <select
+                  value={draftMembership?.paymentStatus || "pending"}
+                  onChange={(e) => setMembershipField("paymentStatus", e.target.value)}
+                  disabled={busy}
+                >
+                  <option value="pending">Pendiente</option>
+                  <option value="paid">Pagado</option>
+                  <option value="overdue">Vencido</option>
+                </select>
+              </div>
+            </div>
+
+            <small style={{ display: "block", marginTop: 8, opacity: 0.7 }}>
+              Guardado automático.
+            </small>
           </div>
         )}
       </div>
